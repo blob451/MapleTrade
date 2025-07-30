@@ -15,3 +15,16 @@ INFO 2025-07-29 18:20:52,946 basehttp 49568 19472 "GET /admin/ HTTP/1.1" 200 657
 INFO 2025-07-29 18:20:52,985 basehttp 49568 19472 "GET /static/admin/css/dashboard.css HTTP/1.1" 200 441
 INFO 2025-07-29 18:20:52,998 basehttp 49568 19472 "GET /static/admin/img/icon-addlink.svg HTTP/1.1" 200 331
 INFO 2025-07-29 18:20:52,998 basehttp 49568 48420 "GET /static/admin/img/icon-changelink.svg HTTP/1.1" 200 380
+INFO 2025-07-29 18:42:11,986 autoreload 3836 49360 Watching for file changes with StatReloader
+INFO 2025-07-29 18:46:04,070 autoreload 3836 49360 C:\Users\Vlad\OneDrive\U of L\Spring 2025\CM 3070 - Final Project\Project\MapleTrade\mapletrade\settings.py changed, reloading.
+INFO 2025-07-29 18:46:04,476 autoreload 33264 51964 Watching for file changes with StatReloader
+INFO 2025-07-29 18:48:22,546 autoreload 33264 51964 C:\Users\Vlad\OneDrive\U of L\Spring 2025\CM 3070 - Final Project\Project\MapleTrade\mapletrade\settings.py changed, reloading.
+INFO 2025-07-29 18:48:22,923 autoreload 41700 45348 Watching for file changes with StatReloader
+INFO 2025-07-29 18:50:22,684 autoreload 5724 52128 Watching for file changes with StatReloader
+INFO 2025-07-29 18:50:38,040 basehttp 41700 5036 "GET /admin HTTP/1.1" 301 0
+INFO 2025-07-29 18:50:38,088 basehttp 41700 48752 "GET /admin/ HTTP/1.1" 302 0
+INFO 2025-07-29 18:50:38,105 basehttp 41700 48752 "GET /admin/login/?next=/admin/ HTTP/1.1" 200 4173
+WARNING 2025-07-29 18:50:38,181 log 41700 48752 Not Found: /favicon.ico
+INFO 2025-07-29 18:50:38,181 basehttp 41700 48752 - Broken pipe from ('127.0.0.1', 54646)
+INFO 2025-07-29 18:50:43,405 basehttp 41700 50680 "POST /admin/login/?next=/admin/ HTTP/1.1" 302 0
+INFO 2025-07-29 18:50:43,434 basehttp 41700 50680 "GET /admin/ HTTP/1.1" 200 6570

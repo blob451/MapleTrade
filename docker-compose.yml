@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  # Redis service for caching and Celery
+  redis:
+    image: redis:7.2-alpine
+    container_name: mapletrade-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - mapletrade-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # PostgreSQL service (ready for future use)
+  postgres:
+    image: postgres:15-alpine
+    container_name: mapletrade-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mapletrade_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: mapletrade_dev_password
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - mapletrade-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    profiles:
+      - postgres  # Only starts when explicitly requested
+
+  # pgAdmin for PostgreSQL management (future use)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: mapletrade-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@mapletrade.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - mapletrade-network
+    profiles:
+      - postgres  # Only starts when explicitly requested
+    depends_on:
+      - postgres
+
+volumes:
+  redis_data:
+    driver: local
+  postgres_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+
+networks:
+  mapletrade-network:
+    driver: bridge
