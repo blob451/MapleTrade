@@ -87,7 +87,7 @@ DATABASES = {
     }
 }
 
-# Cache Configuration
+# Enhanced Cache Configuration with Multiple Cache Types
 CACHES = {
     'default': {
         'BACKEND': 'django_redis.cache.RedisCache',
@@ -95,10 +95,42 @@ CACHES = {
         'OPTIONS': {
             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
         },
-        'KEY_PREFIX': 'mapletrade',
-        'TIMEOUT': config('DEFAULT_CACHE_TIMEOUT', default=3600, cast=int),
-    }
+        'KEY_PREFIX': 'mapletrade:default',
+        'TIMEOUT': 3600,  # 1 hour default
+    },
+    'market_data': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': config('REDIS_URL', default='redis://localhost:6379/1'),
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+        },
+        'KEY_PREFIX': 'mapletrade:market',
+        'TIMEOUT': 3600,  # 1 hour for market data
+    },
+    'analysis_results': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': config('REDIS_URL', default='redis://localhost:6379/2'),
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+        },
+        'KEY_PREFIX': 'mapletrade:analysis',
+        'TIMEOUT': 14400,  # 4 hours for analysis results
+    },
+    'user_sessions': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': config('REDIS_URL', default='redis://localhost:6379/3'),
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+        },
+        'KEY_PREFIX': 'mapletrade:sessions',
+        'TIMEOUT': 86400,  # 24 hours for user sessions
+    },
 }
+
+# Session Configuration to use Redis
+SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
+SESSION_CACHE_ALIAS = 'user_sessions'
+SESSION_COOKIE_AGE = 86400  # 24 hours
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
@@ -224,4 +256,7 @@ MAPLETRADE_SETTINGS = {
     'RATE_LIMIT_REQUESTS': 60,  # Requests per minute per user
     'CACHE_MARKET_DATA_TIMEOUT': 3600,  # 1 hour
     'CACHE_ANALYSIS_TIMEOUT': 14400,  # 4 hours
+    'CACHE_USER_SESSION_TIMEOUT': 86400,  # 24 hours
+    'CACHE_WARMING_ENABLED': config('CACHE_WARMING_ENABLED', default=True, cast=bool),
+    'CACHE_WARMING_INTERVAL': 1800,  # 30 minutes
 }

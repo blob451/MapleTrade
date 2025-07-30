@@ -11,10 +11,14 @@ db.sqlite3-journal
 media/
 staticfiles/
 
-# Environment variables
+# Environment variables - SECURITY: Never commit these!
 .env
+.env.*
+!.env.example
 .env.local
 .env.production
+.env.development
+.env.docker
 
 # Virtual environments
 venv/
@@ -93,3 +97,7 @@ celerybeat.pid
 .mypy_cache/
 .dmypy.json
 dmypy.json
+
+# Cache directories
+.cache/
+__pycache__/
