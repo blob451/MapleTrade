@@ -72,7 +72,7 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'mapletrade.wsgi.application'
 
-# Database Configuration
+# Fixed Database Configuration - Removed problematic options
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
@@ -83,54 +83,51 @@ DATABASES = {
         'PORT': config('DB_PORT', default='5432'),
         'OPTIONS': {
             'connect_timeout': 60,
+            'application_name': 'MapleTrade',
+            # Removed the problematic options - keep it simple for now
         },
+        # Django-specific connection pool settings
+        'CONN_MAX_AGE': 600,  # 10 minutes connection reuse (reduced from 1 hour)
+        'CONN_HEALTH_CHECKS': True,
+        # Simplified settings
+        'ATOMIC_REQUESTS': False,
+        'AUTOCOMMIT': True,
     }
 }
 
-# Enhanced Cache Configuration with Multiple Cache Types
+# Performance and monitoring settings for database
+DATABASE_PERFORMANCE_SETTINGS = {
+    'ENABLE_QUERY_LOGGING': config('DB_QUERY_LOGGING', default=DEBUG, cast=bool),
+    'SLOW_QUERY_THRESHOLD': 1.0,  # Log queries taking longer than 1 second
+    'ENABLE_QUERY_ANALYSIS': config('DB_QUERY_ANALYSIS', default=DEBUG, cast=bool),
+}
+
+# Cache Configuration
 CACHES = {
     'default': {
         'BACKEND': 'django_redis.cache.RedisCache',
         'LOCATION': config('REDIS_URL', default='redis://localhost:6379/0'),
         'OPTIONS': {
             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            'CONNECTION_POOL_KWARGS': {
+                'max_connections': 50,
+                'retry_on_timeout': True,
+            },
         },
-        'KEY_PREFIX': 'mapletrade:default',
-        'TIMEOUT': 3600,  # 1 hour default
+        'KEY_PREFIX': 'mapletrade',
+        'TIMEOUT': config('DEFAULT_CACHE_TIMEOUT', default=3600, cast=int),
     },
-    'market_data': {
+    # Separate cache for financial data
+    'financial_data': {
         'BACKEND': 'django_redis.cache.RedisCache',
         'LOCATION': config('REDIS_URL', default='redis://localhost:6379/1'),
         'OPTIONS': {
             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
         },
-        'KEY_PREFIX': 'mapletrade:market',
-        'TIMEOUT': 3600,  # 1 hour for market data
-    },
-    'analysis_results': {
-        'BACKEND': 'django_redis.cache.RedisCache',
-        'LOCATION': config('REDIS_URL', default='redis://localhost:6379/2'),
-        'OPTIONS': {
-            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-        },
-        'KEY_PREFIX': 'mapletrade:analysis',
-        'TIMEOUT': 14400,  # 4 hours for analysis results
-    },
-    'user_sessions': {
-        'BACKEND': 'django_redis.cache.RedisCache',
-        'LOCATION': config('REDIS_URL', default='redis://localhost:6379/3'),
-        'OPTIONS': {
-            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-        },
-        'KEY_PREFIX': 'mapletrade:sessions',
-        'TIMEOUT': 86400,  # 24 hours for user sessions
-    },
+        'KEY_PREFIX': 'mapletrade_financial',
+        'TIMEOUT': 1800,  # 30 minutes for financial data
+    }
 }
-
-# Session Configuration to use Redis
-SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
-SESSION_CACHE_ALIAS = 'user_sessions'
-SESSION_COOKIE_AGE = 86400  # 24 hours
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
@@ -203,7 +200,7 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = TIME_ZONE
 
-# Logging Configuration
+# Enhanced Logging Configuration with Database Query Logging
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -214,6 +211,10 @@ LOGGING = {
         },
         'simple': {
             'format': '{levelname} {message}',
+            'style': '{',
+        },
+        'database': {
+            'format': '{asctime} {levelname} {name} {message}',
             'style': '{',
         },
     },
@@ -229,6 +230,12 @@ LOGGING = {
             'class': 'logging.StreamHandler',
             'formatter': 'simple',
         },
+        'database_file': {
+            'level': 'DEBUG' if DATABASE_PERFORMANCE_SETTINGS['ENABLE_QUERY_LOGGING'] else 'WARNING',
+            'class': 'logging.FileHandler',
+            'filename': BASE_DIR / 'logs' / 'database.log',
+            'formatter': 'database',
+        },
     },
     'root': {
         'handlers': ['console', 'file'],
@@ -238,6 +245,11 @@ LOGGING = {
         'django': {
             'handlers': ['console', 'file'],
             'level': 'INFO',
+            'propagate': False,
+        },
+        'django.db.backends': {
+            'handlers': ['database_file'],
+            'level': 'DEBUG' if DATABASE_PERFORMANCE_SETTINGS['ENABLE_QUERY_LOGGING'] else 'WARNING',
             'propagate': False,
         },
         'mapletrade': {
@@ -256,7 +268,5 @@ MAPLETRADE_SETTINGS = {
     'RATE_LIMIT_REQUESTS': 60,  # Requests per minute per user
     'CACHE_MARKET_DATA_TIMEOUT': 3600,  # 1 hour
     'CACHE_ANALYSIS_TIMEOUT': 14400,  # 4 hours
-    'CACHE_USER_SESSION_TIMEOUT': 86400,  # 24 hours
-    'CACHE_WARMING_ENABLED': config('CACHE_WARMING_ENABLED', default=True, cast=bool),
-    'CACHE_WARMING_INTERVAL': 1800,  # 30 minutes
+    'DATABASE_PERFORMANCE': DATABASE_PERFORMANCE_SETTINGS,
 }

@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Redis service for caching and Celery
   redis:
@@ -19,7 +17,7 @@ services:
       timeout: 10s
       retries: 5
 
-  # PostgreSQL service (ready for future use)
+  # PostgreSQL service
   postgres:
     image: postgres:15-alpine
     container_name: mapletrade-postgres
