@@ -149,3 +149,12 @@ ERROR 2025-07-29 20:57:41,733 yahoo_finance 27584 28184 Failed to get price hist
 ERROR 2025-07-29 20:57:41,733 cache 27584 28184 Failed to warm cache for XLP: Failed to get price history for XLP: API call failed: PriceHistory.history() got an unexpected keyword argument 'threads'
 INFO 2025-07-29 21:02:17,970 cache 47772 680 Cache warmed for AAPL
 INFO 2025-07-29 21:02:18,297 cache 47772 680 Cache warmed for MSFT
+INFO 2025-07-30 12:07:14,286 autoreload 53684 48772 Watching for file changes with StatReloader
+INFO 2025-07-30 12:07:26,470 autoreload 44292 43324 Watching for file changes with StatReloader
+WARNING 2025-07-30 12:07:41,547 basehttp 44292 20376 "GET / HTTP/1.1" 404 3214
+INFO 2025-07-30 12:07:53,958 basehttp 44292 27492 "GET /health/simple/ HTTP/1.1" 200 70
+INFO 2025-07-30 12:08:12,443 basehttp 44292 52720 "GET /health/ HTTP/1.1" 200 1451
+INFO 2025-07-30 12:12:40,930 autoreload 44292 43324 C:\Users\Vlad\OneDrive\U of L\Spring 2025\CM 3070 - Final Project\Project\MapleTrade\data\providers\yahoo_finance.py changed, reloading.
+INFO 2025-07-30 12:12:41,324 autoreload 53988 13164 Watching for file changes with StatReloader
+INFO 2025-07-30 12:12:51,332 basehttp 53988 26676 "GET /health/ HTTP/1.1" 200 1449
+INFO 2025-07-30 12:13:12,258 basehttp 53988 56132 "GET /health/ HTTP/1.1" 200 1450

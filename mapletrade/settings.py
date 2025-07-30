@@ -50,6 +50,10 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    
+    # Custom MapleTrade middleware
+    'core.middleware.RequestLoggingMiddleware',
+    'core.middleware.ErrorHandlingMiddleware',
 ]
 
 ROOT_URLCONF = 'mapletrade.urls'
@@ -72,7 +76,7 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'mapletrade.wsgi.application'
 
-# Fixed Database Configuration - Removed problematic options
+# Database Configuration
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
@@ -83,23 +87,8 @@ DATABASES = {
         'PORT': config('DB_PORT', default='5432'),
         'OPTIONS': {
             'connect_timeout': 60,
-            'application_name': 'MapleTrade',
-            # Removed the problematic options - keep it simple for now
         },
-        # Django-specific connection pool settings
-        'CONN_MAX_AGE': 600,  # 10 minutes connection reuse (reduced from 1 hour)
-        'CONN_HEALTH_CHECKS': True,
-        # Simplified settings
-        'ATOMIC_REQUESTS': False,
-        'AUTOCOMMIT': True,
     }
-}
-
-# Performance and monitoring settings for database
-DATABASE_PERFORMANCE_SETTINGS = {
-    'ENABLE_QUERY_LOGGING': config('DB_QUERY_LOGGING', default=DEBUG, cast=bool),
-    'SLOW_QUERY_THRESHOLD': 1.0,  # Log queries taking longer than 1 second
-    'ENABLE_QUERY_ANALYSIS': config('DB_QUERY_ANALYSIS', default=DEBUG, cast=bool),
 }
 
 # Cache Configuration
@@ -109,23 +98,9 @@ CACHES = {
         'LOCATION': config('REDIS_URL', default='redis://localhost:6379/0'),
         'OPTIONS': {
             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-            'CONNECTION_POOL_KWARGS': {
-                'max_connections': 50,
-                'retry_on_timeout': True,
-            },
         },
         'KEY_PREFIX': 'mapletrade',
         'TIMEOUT': config('DEFAULT_CACHE_TIMEOUT', default=3600, cast=int),
-    },
-    # Separate cache for financial data
-    'financial_data': {
-        'BACKEND': 'django_redis.cache.RedisCache',
-        'LOCATION': config('REDIS_URL', default='redis://localhost:6379/1'),
-        'OPTIONS': {
-            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-        },
-        'KEY_PREFIX': 'mapletrade_financial',
-        'TIMEOUT': 1800,  # 30 minutes for financial data
     }
 }
 
@@ -182,6 +157,7 @@ REST_FRAMEWORK = {
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
     ],
+    'EXCEPTION_HANDLER': 'rest_framework.views.exception_handler',
 }
 
 # CORS settings (for React frontend)
@@ -200,7 +176,11 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = TIME_ZONE
 
-# Enhanced Logging Configuration with Database Query Logging
+# Enhanced Logging Configuration
+# Ensure logs directory exists
+LOGS_DIR = BASE_DIR / 'logs'
+LOGS_DIR.mkdir(exist_ok=True)
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -210,51 +190,120 @@ LOGGING = {
             'style': '{',
         },
         'simple': {
-            'format': '{levelname} {message}',
+            'format': '{levelname} {asctime} {message}',
             'style': '{',
         },
-        'database': {
-            'format': '{asctime} {levelname} {name} {message}',
+        'structured': {
+            'format': '{levelname} | {asctime} | {module} | {message}',
             'style': '{',
         },
     },
-    'handlers': {
-        'file': {
-            'level': 'INFO',
-            'class': 'logging.FileHandler',
-            'filename': BASE_DIR / 'logs' / 'django.log',
-            'formatter': 'verbose',
+    'filters': {
+        'require_debug_false': {
+            '()': 'django.utils.log.RequireDebugFalse',
         },
+        'require_debug_true': {
+            '()': 'django.utils.log.RequireDebugTrue',
+        },
+    },
+    'handlers': {
         'console': {
             'level': 'DEBUG',
             'class': 'logging.StreamHandler',
             'formatter': 'simple',
+            'filters': ['require_debug_true'],
         },
-        'database_file': {
-            'level': 'DEBUG' if DATABASE_PERFORMANCE_SETTINGS['ENABLE_QUERY_LOGGING'] else 'WARNING',
-            'class': 'logging.FileHandler',
-            'filename': BASE_DIR / 'logs' / 'database.log',
-            'formatter': 'database',
+        'file_debug': {
+            'level': 'DEBUG',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': LOGS_DIR / 'debug.log',
+            'maxBytes': 1024*1024*10,  # 10 MB
+            'backupCount': 5,
+            'formatter': 'verbose',
+            'filters': ['require_debug_true'],
+        },
+        'file_django': {
+            'level': 'INFO',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': LOGS_DIR / 'django.log',
+            'maxBytes': 1024*1024*10,  # 10 MB
+            'backupCount': 5,
+            'formatter': 'verbose',
+        },
+        'file_mapletrade': {
+            'level': 'INFO',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': LOGS_DIR / 'mapletrade.log',
+            'maxBytes': 1024*1024*10,  # 10 MB
+            'backupCount': 5,
+            'formatter': 'verbose',
+        },
+        'file_errors': {
+            'level': 'ERROR',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': LOGS_DIR / 'errors.log',
+            'maxBytes': 1024*1024*10,  # 10 MB
+            'backupCount': 10,
+            'formatter': 'verbose',
+        },
+        'file_security': {
+            'level': 'WARNING',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': LOGS_DIR / 'security.log',
+            'maxBytes': 1024*1024*5,  # 5 MB
+            'backupCount': 10,
+            'formatter': 'structured',
+        },
+        'mail_admins': {
+            'level': 'ERROR',
+            'class': 'django.utils.log.AdminEmailHandler',
+            'filters': ['require_debug_false'],
+            'formatter': 'verbose',
         },
     },
     'root': {
-        'handlers': ['console', 'file'],
+        'handlers': ['console', 'file_django'],
         'level': 'INFO',
     },
     'loggers': {
         'django': {
-            'handlers': ['console', 'file'],
+            'handlers': ['console', 'file_django', 'mail_admins'],
             'level': 'INFO',
             'propagate': False,
         },
-        'django.db.backends': {
-            'handlers': ['database_file'],
-            'level': 'DEBUG' if DATABASE_PERFORMANCE_SETTINGS['ENABLE_QUERY_LOGGING'] else 'WARNING',
+        'django.security': {
+            'handlers': ['file_security', 'mail_admins'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'django.request': {
+            'handlers': ['file_errors', 'mail_admins'],
+            'level': 'ERROR',
             'propagate': False,
         },
         'mapletrade': {
-            'handlers': ['console', 'file'],
-            'level': 'DEBUG',
+            'handlers': ['console', 'file_mapletrade', 'file_errors'],
+            'level': 'DEBUG' if DEBUG else 'INFO',
+            'propagate': False,
+        },
+        'mapletrade.middleware': {
+            'handlers': ['file_mapletrade', 'file_errors'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'mapletrade.health': {
+            'handlers': ['console', 'file_mapletrade'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'data.providers': {
+            'handlers': ['file_mapletrade', 'file_errors'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'analytics': {
+            'handlers': ['file_mapletrade', 'file_errors'],
+            'level': 'DEBUG' if DEBUG else 'INFO',
             'propagate': False,
         },
     },
@@ -268,5 +317,28 @@ MAPLETRADE_SETTINGS = {
     'RATE_LIMIT_REQUESTS': 60,  # Requests per minute per user
     'CACHE_MARKET_DATA_TIMEOUT': 3600,  # 1 hour
     'CACHE_ANALYSIS_TIMEOUT': 14400,  # 4 hours
-    'DATABASE_PERFORMANCE': DATABASE_PERFORMANCE_SETTINGS,
+    
+    # Health check settings
+    'HEALTH_CHECK_CACHE_TIMEOUT': 300,  # 5 minutes
+    'HEALTH_CHECK_DATABASE_TIMEOUT': 10,  # seconds
+    'HEALTH_CHECK_API_TIMEOUT': 15,  # seconds
+    
+    # Error handling settings
+    'MAX_ERROR_LOGS_PER_HOUR': 100,
+    'ERROR_NOTIFICATION_THRESHOLD': 10,  # errors per 5 minutes
+    'CRITICAL_ERROR_IMMEDIATE_NOTIFICATION': True,
 }
+
+# Version information
+VERSION = '1.0.0-dev'
+DJANGO_ENV = config('DJANGO_ENV', default='development')
+
+# Security settings for production
+if not DEBUG:
+    SECURE_BROWSER_XSS_FILTER = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_REDIRECT_EXEMPT = [r'^health/']
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True

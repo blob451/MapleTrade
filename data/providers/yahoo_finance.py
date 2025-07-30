@@ -70,12 +70,12 @@ class YahooFinanceProvider(BaseDataProvider):
         try:
             def _fetch_history():
                 ticker = yf.Ticker(symbol.upper())
-                # Removed 'threads' parameter for compatibility
                 return ticker.history(
                     start=start_date.date(),
                     end=end_date.date(),
                     auto_adjust=False,
                     prepost=False
+                    # Removed 'threads=True' parameter - not supported in current yfinance version
                 )
             
             hist_data = self._make_api_call(_fetch_history)
