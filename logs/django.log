@@ -158,3 +158,131 @@ INFO 2025-07-30 12:12:40,930 autoreload 44292 43324 C:\Users\Vlad\OneDrive\U of 
 INFO 2025-07-30 12:12:41,324 autoreload 53988 13164 Watching for file changes with StatReloader
 INFO 2025-07-30 12:12:51,332 basehttp 53988 26676 "GET /health/ HTTP/1.1" 200 1449
 INFO 2025-07-30 12:13:12,258 basehttp 53988 56132 "GET /health/ HTTP/1.1" 200 1450
+INFO 2025-07-30 22:06:41,391 sector_mapping 6272 27324 Created new sector: FINANCIALS (Financial Services)
+INFO 2025-07-30 22:07:42,715 sector_mapping 27796 51964 Created new sector: TECH (Technology)
+INFO 2025-07-30 22:07:42,721 sector_mapping 27796 51964 Created new sector: COMM (Communication Services)
+INFO 2025-07-30 22:07:42,726 sector_mapping 27796 51964 Created new sector: FINANCIALS (Financial Services)
+INFO 2025-07-30 22:07:42,734 sector_mapping 27796 51964 Created new sector: HEALTHCARE (Healthcare)
+INFO 2025-07-30 22:10:03,797 sector_mapping 55552 57460 Created new sector: TECH (Technology)
+INFO 2025-07-30 22:10:03,805 sector_mapping 55552 57460 Created new sector: COMM (Communication Services)
+INFO 2025-07-30 22:10:03,812 sector_mapping 55552 57460 Created new sector: FINANCIALS (Financial Services)
+INFO 2025-07-30 22:10:03,818 sector_mapping 55552 57460 Created new sector: HEALTHCARE (Healthcare)
+INFO 2025-07-30 22:12:54,842 sector_mapping 37552 47472 Created new sector: TECH (Technology)
+INFO 2025-07-30 22:12:54,848 sector_mapping 37552 47472 Created new sector: COMM (Communication Services)
+INFO 2025-07-30 22:12:54,853 sector_mapping 37552 47472 Created new sector: FINANCIAL (Financial)
+INFO 2025-07-30 22:12:54,859 sector_mapping 37552 47472 Created new sector: HEALTH (Health)
+INFO 2025-07-30 22:12:54,865 sector_mapping 37552 47472 Created new sector: CONS_DISC (Cons Disc)
+INFO 2025-07-30 22:12:54,871 sector_mapping 37552 47472 Created new sector: CONS_STPL (Cons Stpl)
+INFO 2025-07-30 22:12:54,876 sector_mapping 37552 47472 Created new sector: ENERGY (Energy)
+INFO 2025-07-30 22:12:54,881 sector_mapping 37552 47472 Created new sector: MATERIALS (Materials)
+INFO 2025-07-30 22:12:54,888 sector_mapping 37552 47472 Created new sector: INDUSTRIAL (Industrial)
+INFO 2025-07-30 22:12:54,894 sector_mapping 37552 47472 Created new sector: UTILITIES (Utilities)
+INFO 2025-07-30 22:12:54,900 sector_mapping 37552 47472 Created new sector: REAL_EST (Real Est)
+INFO 2025-07-30 22:12:54,910 sector_mapping 37552 47472 Default sectors initialized successfully
+INFO 2025-07-30 22:12:54,911 sector_mapping 37552 47472   COMM: Communication Services (XLC) - Vol threshold: 0.3800
+INFO 2025-07-30 22:12:54,911 sector_mapping 37552 47472   CONS_DISC: Cons Disc (XLY) - Vol threshold: 0.3500
+INFO 2025-07-30 22:12:54,911 sector_mapping 37552 47472   CONS_STPL: Cons Stpl (XLP) - Vol threshold: 0.2200
+INFO 2025-07-30 22:12:54,912 sector_mapping 37552 47472   ENERGY: Energy (XLE) - Vol threshold: 0.5500
+INFO 2025-07-30 22:12:54,912 sector_mapping 37552 47472   FINANCIAL: Financial (XLF) - Vol threshold: 0.3500
+INFO 2025-07-30 22:12:54,912 sector_mapping 37552 47472   HEALTH: Health (XLV) - Vol threshold: 0.2800
+INFO 2025-07-30 22:12:54,912 sector_mapping 37552 47472   INDUSTRIAL: Industrial (XLI) - Vol threshold: 0.3500
+INFO 2025-07-30 22:12:54,912 sector_mapping 37552 47472   MATERIALS: Materials (XLB) - Vol threshold: 0.4500
+INFO 2025-07-30 22:12:54,912 sector_mapping 37552 47472   REAL_EST: Real Est (XLRE) - Vol threshold: 0.3500
+INFO 2025-07-30 22:12:54,912 sector_mapping 37552 47472   TECH: Technology (XLK) - Vol threshold: 0.4200
+INFO 2025-07-30 22:12:54,912 sector_mapping 37552 47472   UTILITIES: Utilities (XLU) - Vol threshold: 0.2000
+INFO 2025-07-30 22:12:59,961 sector_mapping 2232 48676 Created new sector: TECH (Technology)
+INFO 2025-07-30 22:12:59,969 sector_mapping 2232 48676 Created new sector: COMM (Communication Services)
+INFO 2025-07-30 22:12:59,974 sector_mapping 2232 48676 Created new sector: FINANCIAL (Financial Services)
+INFO 2025-07-30 22:12:59,980 sector_mapping 2232 48676 Created new sector: HEALTH (Healthcare)
+INFO 2025-07-30 22:12:59,986 sector_mapping 2232 48676 Created new sector: CONS_DISC (Consumer Discretionary)
+INFO 2025-07-30 22:12:59,994 sector_mapping 2232 48676 Created new sector: CONS_STPL (Consumer Staples)
+INFO 2025-07-30 22:13:00,000 sector_mapping 2232 48676 Created new sector: ENERGY (Energy)
+INFO 2025-07-30 22:13:00,005 sector_mapping 2232 48676 Created new sector: MATERIALS (Materials)
+INFO 2025-07-30 22:13:00,011 sector_mapping 2232 48676 Created new sector: INDUSTRIAL (Industrials)
+INFO 2025-07-30 22:13:00,018 sector_mapping 2232 48676 Created new sector: UTILITIES (Utilities)
+INFO 2025-07-30 22:13:00,024 sector_mapping 2232 48676 Created new sector: REAL_EST (Real Estate)
+INFO 2025-07-30 22:13:00,034 sector_mapping 2232 48676 Default sectors initialized successfully
+INFO 2025-07-30 22:13:00,036 sector_mapping 2232 48676   COMM: Communication Services (XLC) - Vol threshold: 0.3800
+INFO 2025-07-30 22:13:00,036 sector_mapping 2232 48676   CONS_DISC: Consumer Discretionary (XLY) - Vol threshold: 0.3500
+INFO 2025-07-30 22:13:00,036 sector_mapping 2232 48676   CONS_STPL: Consumer Staples (XLP) - Vol threshold: 0.2200
+INFO 2025-07-30 22:13:00,036 sector_mapping 2232 48676   ENERGY: Energy (XLE) - Vol threshold: 0.5500
+INFO 2025-07-30 22:13:00,036 sector_mapping 2232 48676   FINANCIAL: Financial Services (XLF) - Vol threshold: 0.3500
+INFO 2025-07-30 22:13:00,036 sector_mapping 2232 48676   HEALTH: Healthcare (XLV) - Vol threshold: 0.2800
+INFO 2025-07-30 22:13:00,036 sector_mapping 2232 48676   INDUSTRIAL: Industrials (XLI) - Vol threshold: 0.3500
+INFO 2025-07-30 22:13:00,037 sector_mapping 2232 48676   MATERIALS: Materials (XLB) - Vol threshold: 0.4500
+INFO 2025-07-30 22:13:00,037 sector_mapping 2232 48676   REAL_EST: Real Estate (XLRE) - Vol threshold: 0.3500
+INFO 2025-07-30 22:13:00,037 sector_mapping 2232 48676   TECH: Technology (XLK) - Vol threshold: 0.4200
+INFO 2025-07-30 22:13:00,037 sector_mapping 2232 48676   UTILITIES: Utilities (XLU) - Vol threshold: 0.2000
+INFO 2025-07-30 22:13:12,511 sector_mapping 55728 13472 Created new sector: TECH (Technology)
+INFO 2025-07-30 22:13:12,537 sector_mapping 55728 13472 Created new sector: COMM (Communication Services)
+INFO 2025-07-30 22:13:12,543 sector_mapping 55728 13472 Created new sector: FINANCIAL (Financial Services)
+INFO 2025-07-30 22:13:12,550 sector_mapping 55728 13472 Created new sector: HEALTH (Healthcare)
+INFO 2025-07-30 22:13:12,555 sector_mapping 55728 13472 Created new sector: CONS_DISC (Consumer Discretionary)
+INFO 2025-07-30 22:13:12,560 sector_mapping 55728 13472 Created new sector: CONS_STPL (Consumer Staples)
+INFO 2025-07-30 22:13:12,565 sector_mapping 55728 13472 Created new sector: ENERGY (Energy)
+INFO 2025-07-30 22:13:12,571 sector_mapping 55728 13472 Created new sector: MATERIALS (Materials)
+INFO 2025-07-30 22:13:12,576 sector_mapping 55728 13472 Created new sector: INDUSTRIAL (Industrials)
+INFO 2025-07-30 22:13:12,581 sector_mapping 55728 13472 Created new sector: UTILITIES (Utilities)
+INFO 2025-07-30 22:13:12,586 sector_mapping 55728 13472 Created new sector: REAL_EST (Real Estate)
+INFO 2025-07-30 22:13:12,596 sector_mapping 55728 13472 Default sectors initialized successfully
+INFO 2025-07-30 22:13:12,597 sector_mapping 55728 13472   COMM: Communication Services (XLC) - Vol threshold: 0.3800
+INFO 2025-07-30 22:13:12,598 sector_mapping 55728 13472   CONS_DISC: Consumer Discretionary (XLY) - Vol threshold: 0.3500
+INFO 2025-07-30 22:13:12,598 sector_mapping 55728 13472   CONS_STPL: Consumer Staples (XLP) - Vol threshold: 0.2200
+INFO 2025-07-30 22:13:12,598 sector_mapping 55728 13472   ENERGY: Energy (XLE) - Vol threshold: 0.5500
+INFO 2025-07-30 22:13:12,598 sector_mapping 55728 13472   FINANCIAL: Financial Services (XLF) - Vol threshold: 0.3500
+INFO 2025-07-30 22:13:12,598 sector_mapping 55728 13472   HEALTH: Healthcare (XLV) - Vol threshold: 0.2800
+INFO 2025-07-30 22:13:12,598 sector_mapping 55728 13472   INDUSTRIAL: Industrials (XLI) - Vol threshold: 0.3500
+INFO 2025-07-30 22:13:12,599 sector_mapping 55728 13472   MATERIALS: Materials (XLB) - Vol threshold: 0.4500
+INFO 2025-07-30 22:13:12,599 sector_mapping 55728 13472   REAL_EST: Real Estate (XLRE) - Vol threshold: 0.3500
+INFO 2025-07-30 22:13:12,599 sector_mapping 55728 13472   TECH: Technology (XLK) - Vol threshold: 0.4200
+INFO 2025-07-30 22:13:12,599 sector_mapping 55728 13472   UTILITIES: Utilities (XLU) - Vol threshold: 0.2000
+INFO 2025-07-30 22:13:39,302 sector_mapping 25428 51508 Created new sector: TECH (Technology)
+INFO 2025-07-30 22:13:39,307 sector_mapping 25428 51508 Created new sector: COMM (Communication Services)
+INFO 2025-07-30 22:13:39,313 sector_mapping 25428 51508 Created new sector: FINANCIAL (Financial Services)
+INFO 2025-07-30 22:13:39,319 sector_mapping 25428 51508 Created new sector: HEALTH (Healthcare)
+INFO 2025-07-30 22:13:39,325 sector_mapping 25428 51508 Created new sector: CONS_DISC (Consumer Discretionary)
+INFO 2025-07-30 22:13:39,331 sector_mapping 25428 51508 Created new sector: CONS_STPL (Consumer Staples)
+INFO 2025-07-30 22:13:39,337 sector_mapping 25428 51508 Created new sector: ENERGY (Energy)
+INFO 2025-07-30 22:13:39,342 sector_mapping 25428 51508 Created new sector: MATERIALS (Materials)
+INFO 2025-07-30 22:13:39,347 sector_mapping 25428 51508 Created new sector: INDUSTRIAL (Industrials)
+INFO 2025-07-30 22:13:39,352 sector_mapping 25428 51508 Created new sector: UTILITIES (Utilities)
+INFO 2025-07-30 22:13:39,359 sector_mapping 25428 51508 Created new sector: REAL_EST (Real Estate)
+INFO 2025-07-30 22:13:39,368 sector_mapping 25428 51508 Default sectors initialized successfully
+INFO 2025-07-30 22:13:39,369 sector_mapping 25428 51508   COMM: Communication Services (XLC) - Vol threshold: 0.3800
+INFO 2025-07-30 22:13:39,369 sector_mapping 25428 51508   CONS_DISC: Consumer Discretionary (XLY) - Vol threshold: 0.3500
+INFO 2025-07-30 22:13:39,370 sector_mapping 25428 51508   CONS_STPL: Consumer Staples (XLP) - Vol threshold: 0.2200
+INFO 2025-07-30 22:13:39,370 sector_mapping 25428 51508   ENERGY: Energy (XLE) - Vol threshold: 0.5500
+INFO 2025-07-30 22:13:39,370 sector_mapping 25428 51508   FINANCIAL: Financial Services (XLF) - Vol threshold: 0.3500
+INFO 2025-07-30 22:13:39,370 sector_mapping 25428 51508   HEALTH: Healthcare (XLV) - Vol threshold: 0.2800
+INFO 2025-07-30 22:13:39,370 sector_mapping 25428 51508   INDUSTRIAL: Industrials (XLI) - Vol threshold: 0.3500
+INFO 2025-07-30 22:13:39,370 sector_mapping 25428 51508   MATERIALS: Materials (XLB) - Vol threshold: 0.4500
+INFO 2025-07-30 22:13:39,370 sector_mapping 25428 51508   REAL_EST: Real Estate (XLRE) - Vol threshold: 0.3500
+INFO 2025-07-30 22:13:39,370 sector_mapping 25428 51508   TECH: Technology (XLK) - Vol threshold: 0.4200
+INFO 2025-07-30 22:13:39,370 sector_mapping 25428 51508   UTILITIES: Utilities (XLU) - Vol threshold: 0.2000
+INFO 2025-07-30 22:14:58,185 sector_mapping 57256 13168 Created new sector: TECH (Technology)
+INFO 2025-07-30 22:14:58,190 sector_mapping 57256 13168 Created new sector: COMM (Communication Services)
+INFO 2025-07-30 22:14:58,196 sector_mapping 57256 13168 Created new sector: FINANCIAL (Financial Services)
+INFO 2025-07-30 22:14:58,202 sector_mapping 57256 13168 Created new sector: HEALTH (Healthcare)
+INFO 2025-07-30 22:14:58,208 sector_mapping 57256 13168 Created new sector: CONS_DISC (Consumer Discretionary)
+INFO 2025-07-30 22:14:58,213 sector_mapping 57256 13168 Created new sector: CONS_STPL (Consumer Staples)
+INFO 2025-07-30 22:14:58,218 sector_mapping 57256 13168 Created new sector: ENERGY (Energy)
+INFO 2025-07-30 22:14:58,224 sector_mapping 57256 13168 Created new sector: MATERIALS (Materials)
+INFO 2025-07-30 22:14:58,229 sector_mapping 57256 13168 Created new sector: INDUSTRIAL (Industrials)
+INFO 2025-07-30 22:14:58,234 sector_mapping 57256 13168 Created new sector: UTILITIES (Utilities)
+INFO 2025-07-30 22:14:58,240 sector_mapping 57256 13168 Created new sector: REAL_EST (Real Estate)
+INFO 2025-07-30 22:14:58,251 sector_mapping 57256 13168 Default sectors initialized successfully
+INFO 2025-07-30 22:14:58,252 sector_mapping 57256 13168   COMM: Communication Services (XLC) - Vol threshold: 0.3800
+INFO 2025-07-30 22:14:58,253 sector_mapping 57256 13168   CONS_DISC: Consumer Discretionary (XLY) - Vol threshold: 0.3500
+INFO 2025-07-30 22:14:58,253 sector_mapping 57256 13168   CONS_STPL: Consumer Staples (XLP) - Vol threshold: 0.2200
+INFO 2025-07-30 22:14:58,253 sector_mapping 57256 13168   ENERGY: Energy (XLE) - Vol threshold: 0.5500
+INFO 2025-07-30 22:14:58,253 sector_mapping 57256 13168   FINANCIAL: Financial Services (XLF) - Vol threshold: 0.3500
+INFO 2025-07-30 22:14:58,253 sector_mapping 57256 13168   HEALTH: Healthcare (XLV) - Vol threshold: 0.2800
+INFO 2025-07-30 22:14:58,254 sector_mapping 57256 13168   INDUSTRIAL: Industrials (XLI) - Vol threshold: 0.3500
+INFO 2025-07-30 22:14:58,254 sector_mapping 57256 13168   MATERIALS: Materials (XLB) - Vol threshold: 0.4500
+INFO 2025-07-30 22:14:58,254 sector_mapping 57256 13168   REAL_EST: Real Estate (XLRE) - Vol threshold: 0.3500
+INFO 2025-07-30 22:14:58,254 sector_mapping 57256 13168   TECH: Technology (XLK) - Vol threshold: 0.4200
+INFO 2025-07-30 22:14:58,254 sector_mapping 57256 13168   UTILITIES: Utilities (XLU) - Vol threshold: 0.2000
+INFO 2025-07-30 22:15:12,112 analytics_engine 56452 54644 Starting analysis for NVDA (12 months)
+ERROR 2025-07-30 22:15:13,989 analytics_engine 56452 54644 Analysis failed for NVDA: Return calculation failed: 'PriceData' object has no attribute 'close'
+INFO 2025-07-30 22:18:03,973 analytics_engine 52312 57272 Starting analysis for NVDA (12 months)
+INFO 2025-07-30 22:18:04,009 analytics_engine 52312 57272 Analysis complete for NVDA: BUY
