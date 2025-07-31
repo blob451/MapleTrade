@@ -14,8 +14,7 @@ import json
 
 from analytics.models import Stock, Sector, TechnicalIndicator
 from analytics.technical_indicators import TechnicalIndicators
-from analytics.services import analyze_stock_complete
-
+from analytics.services import AnalyticsEngine
 
 class Command(BaseCommand):
     help = 'Test technical indicators functionality with real or sample data'
