@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 import pandas as pd
 import logging
+import time
 from django.conf import settings
 
 from .base import (
@@ -30,8 +31,21 @@ class YahooFinanceProvider(BaseDataProvider):
     """
     
     def __init__(self):
-        super().__init__(rate_limit_calls_per_minute=30)  # Conservative rate limit
+        super().__init__(rate_limit_calls_per_minute=10)  # Reduced rate limit
         self.timeout = getattr(settings, 'YAHOO_FINANCE_TIMEOUT', 30)
+        self._last_call_time = 0
+    
+    def _enforce_rate_limit(self):
+        """Enforce a minimum delay between API calls."""
+        current_time = time.time()
+        time_since_last_call = current_time - self._last_call_time
+        min_delay = 3.0  # Minimum 3 seconds between calls
+        
+        if time_since_last_call < min_delay:
+            sleep_time = min_delay - time_since_last_call
+            time.sleep(sleep_time)
+        
+        self._last_call_time = time.time()
     
     def get_stock_info(self, symbol: str) -> StockInfo:
         """Get basic stock information from Yahoo Finance."""
@@ -70,12 +84,12 @@ class YahooFinanceProvider(BaseDataProvider):
         try:
             def _fetch_history():
                 ticker = yf.Ticker(symbol.upper())
+                # Remove the threads parameter - not supported in all versions
                 return ticker.history(
                     start=start_date.date(),
                     end=end_date.date(),
                     auto_adjust=False,
                     prepost=False
-                    # Removed 'threads=True' parameter - not supported in current yfinance version
                 )
             
             hist_data = self._make_api_call(_fetch_history)
@@ -93,7 +107,7 @@ class YahooFinanceProvider(BaseDataProvider):
                         high_price=self._safe_decimal(row['High']),
                         low_price=self._safe_decimal(row['Low']),
                         close_price=self._safe_decimal(row['Close']),
-                        adjusted_close=self._safe_decimal(row['Adj Close']),
+                        adjusted_close=self._safe_decimal(row.get('Adj Close', row['Close'])),
                         volume=int(row['Volume']) if pd.notna(row['Volume']) else 0
                     )
                     
@@ -200,6 +214,5 @@ class YahooFinanceProvider(BaseDataProvider):
         Get a list of stocks from a sector ETF.
         Note: This is a simplified implementation.
         """
-        # This would require additional data sources or APIs
-        # For now, return empty list
+        # For now, return empty list - would need additional data source
         return []
