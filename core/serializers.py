@@ -103,16 +103,18 @@ class PortfolioStockSerializer(serializers.ModelSerializer):
 class UserPortfolioSerializer(serializers.ModelSerializer):
     """Serializer for UserPortfolio model."""
     
-    stocks = PortfolioStockSerializer(many=True, read_only=True)
-    stock_count = serializers.SerializerMethodField()
+    stocks_count = serializers.IntegerField(
+        source='stocks.count', 
+        read_only=True
+    )
     
     class Meta:
         model = UserPortfolio
         fields = [
-            'id', 'name', 'description', 'is_default', 'stocks',
-            'stock_count', 'created_at', 'updated_at'
+            'id', 'name', 'description', 'is_default',
+            'created_at', 'stocks_count'
         ]
-        read_only_fields = ['created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at']
     
     def get_stock_count(self, obj):
         """Get count of stocks in portfolio."""
