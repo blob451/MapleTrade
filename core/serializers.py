@@ -5,8 +5,9 @@ This module provides Django REST Framework serializers for API endpoints.
 """
 
 from rest_framework import serializers
-from .models import Stock, Sector, AnalysisResult, PriceData, UserPortfolio, PortfolioStock
-
+from data.models import Stock, Sector, PriceData
+from analytics.models import AnalysisResult
+from users.models import UserPortfolio, PortfolioStock
 
 class SectorSerializer(serializers.ModelSerializer):
     """Serializer for Sector model."""

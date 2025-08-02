@@ -18,7 +18,7 @@ from django.core.cache import cache
 
 from core.models import Stock, Sector, PriceData
 from data.providers.yahoo_finance import YahooFinanceProvider
-from .calculations import VolatilityCalculator, ReturnCalculator
+from ...analytics.services.calculations import VolatilityCalculator, ReturnCalculator
 from .sector_mapping import SectorMapper
 
 logger = logging.getLogger(__name__)

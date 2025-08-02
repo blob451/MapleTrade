@@ -189,7 +189,7 @@ class Command(BaseCommand):
         """Test calculation functions with sample data."""
         self.stdout.write("Testing calculation functions...")
         
-        from core.services.calculations import ReturnCalculator, VolatilityCalculator
+        from analytics.services.calculations import ReturnCalculator, VolatilityCalculator
         from data.providers.base import PriceData
         from datetime import date
         

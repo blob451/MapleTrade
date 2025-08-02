@@ -7,7 +7,7 @@ calculation services.
 """
 
 from .analytics_engine import AnalyticsEngine, AnalysisResult, AnalysisSignals, AnalyticsEngineError
-from .calculations import (
+from ...analytics.services.calculations import (
     ReturnCalculator, 
     VolatilityCalculator, 
     TechnicalCalculator, 

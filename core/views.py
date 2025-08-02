@@ -6,7 +6,7 @@ and retrieving analysis results.
 """
 
 import logging
-from decimal import Decimal  # Add this line
+from decimal import Decimal
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -15,8 +15,9 @@ from django.core.cache import cache
 from django.utils import timezone
 from datetime import timedelta
 
-from core.services.analytics_engine import AnalyticsEngine, AnalyticsEngineError
-from core.models import Stock, AnalysisResult
+from analytics.services.engine import AnalyticsEngine, AnalyticsEngineError  # Updated
+from data.models import Stock
+from analytics.models import AnalysisResult
 from core.serializers import AnalysisResultSerializer, StockSerializer
 
 logger = logging.getLogger(__name__)
@@ -324,7 +325,7 @@ def health_check(request):
         validation = validate_sector_mappings()
         
         # Test basic calculations
-        from core.services.calculations import ReturnCalculator
+        from analytics.services.calculations import ReturnCalculator
         calc = ReturnCalculator()
         
         health_data = {

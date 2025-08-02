@@ -8,11 +8,175 @@ for stock analysis and machine learning predictions.
 from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.utils import timezone
+from django.contrib.auth import get_user_model
 from decimal import Decimal
 import json
 
-from core.models import BaseModel, Stock, Sector
-from users.models import User
+# Import only after Django apps are ready
+from data.models import BaseModel
+
+# Get User model reference
+User = get_user_model()
+
+
+class AnalysisResult(BaseModel):
+    """
+    Model for storing analysis results from the three-factor model.
+    
+    This is the core model that stores the output of our analytics engine.
+    """
+    # Use string reference for foreign key to avoid import issues
+    stock = models.ForeignKey('data.Stock', on_delete=models.CASCADE, related_name='analysis_results')
+    analysis_date = models.DateTimeField(default=timezone.now, help_text="When analysis was performed")
+    analysis_period_months = models.IntegerField(default=6, help_text="Analysis period in months")
+    
+    # Recommendation
+    SIGNAL_CHOICES = [
+        ('BUY', 'Buy'),
+        ('HOLD', 'Hold'),
+        ('SELL', 'Sell'),
+    ]
+    signal = models.CharField(max_length=4, choices=SIGNAL_CHOICES, help_text="Investment recommendation")
+    confidence = models.DecimalField(
+        max_digits=5, 
+        decimal_places=4, 
+        default=0,
+        help_text="Confidence score (0-1)"
+    )
+    
+    # Performance Metrics
+    stock_return = models.DecimalField(
+        max_digits=10, 
+        decimal_places=4, 
+        null=True, 
+        blank=True,
+        help_text="Stock return percentage"
+    )
+    sector_return = models.DecimalField(
+        max_digits=10, 
+        decimal_places=4, 
+        null=True, 
+        blank=True,
+        help_text="Sector ETF return percentage"
+    )
+    outperformance = models.DecimalField(
+        max_digits=10, 
+        decimal_places=4, 
+        null=True, 
+        blank=True,
+        help_text="Stock outperformance vs sector"
+    )
+    
+    # Risk Metrics
+    volatility = models.DecimalField(
+        max_digits=10, 
+        decimal_places=4, 
+        null=True, 
+        blank=True,
+        help_text="Annualized volatility percentage"
+    )
+    
+    # Price Information
+    current_price = models.DecimalField(
+        max_digits=12, 
+        decimal_places=4, 
+        null=True, 
+        blank=True,
+        help_text="Stock price at analysis time"
+    )
+    target_price = models.DecimalField(
+        max_digits=12, 
+        decimal_places=4, 
+        null=True, 
+        blank=True,
+        help_text="Analyst target price at analysis time"
+    )
+    
+    # Three-factor signals
+    outperformed_sector = models.BooleanField(default=False, help_text="Stock outperformed sector ETF")
+    target_above_price = models.BooleanField(default=False, help_text="Target price above current")
+    volatility_below_threshold = models.BooleanField(default=False, help_text="Volatility below sector threshold")
+    
+    # Sector Information (cached for historical reference)
+    sector_name = models.CharField(max_length=100, blank=True, help_text="Sector name at time of analysis")
+    sector_etf = models.CharField(max_length=10, blank=True, help_text="Sector ETF used for comparison")
+    sector_volatility_threshold = models.DecimalField(
+        max_digits=5, 
+        decimal_places=4, 
+        null=True,
+        blank=True,
+        help_text="Sector volatility threshold at time of analysis"
+    )
+    
+    # Analysis metadata
+    rationale = models.TextField(blank=True, help_text="Explanation for the recommendation")
+    engine_version = models.CharField(max_length=20, default='1.0.0', help_text="Analytics engine version")
+    errors = models.JSONField(default=list, blank=True, help_text="Any errors during analysis")
+    raw_data = models.JSONField(default=dict, blank=True, help_text="Complete analysis data")
+    
+    # Cache control
+    is_valid = models.BooleanField(default=True, help_text="Whether this analysis is still valid")
+    
+    class Meta:
+        db_table = 'mapletrade_analysis_results'
+        indexes = [
+            models.Index(fields=['stock', 'analysis_date']),
+            models.Index(fields=['analysis_date']),
+            models.Index(fields=['signal']),
+            models.Index(fields=['stock', 'signal']),
+        ]
+        ordering = ['-analysis_date']
+    
+    def __str__(self):
+        return f"{self.stock.symbol} - {self.signal} ({self.analysis_date.date()})"
+    
+    @property
+    def is_recent(self):
+        """Check if analysis is recent (within 24 hours)."""
+        return (timezone.now() - self.analysis_date).total_seconds() < 86400
+    
+    @property
+    def target_upside(self):
+        """Calculate target upside percentage."""
+        if self.target_price and self.current_price and self.current_price > 0:
+            return float((self.target_price - self.current_price) / self.current_price)
+        return None
+    
+    @property
+    def conditions_met_count(self):
+        """Count how many of the three conditions are met."""
+        return sum([self.outperformed_sector, self.target_above_price, self.volatility_below_threshold])
+    
+    @property
+    def is_strong_signal(self):
+        """Check if this is a strong signal (2+ conditions met)."""
+        return self.conditions_met_count >= 2
+    
+    @property
+    def conditions_summary(self):
+        """Get summary of conditions met."""
+        conditions = []
+        if self.outperformed_sector:
+            conditions.append("Outperformed sector")
+        if self.target_above_price:
+            conditions.append("Positive analyst outlook")
+        if self.volatility_below_threshold:
+            conditions.append("Low volatility")
+        return ", ".join(conditions) if conditions else "No conditions met"
+    
+    def save(self, *args, **kwargs):
+        """Calculate derived fields before saving."""
+        # Calculate outperformance if we have the data
+        if self.stock_return is not None and self.sector_return is not None:
+            self.outperformance = self.stock_return - self.sector_return
+        
+        # Set sector information if not already set
+        if self.stock.sector and not self.sector_name:
+            self.sector_name = self.stock.sector.name
+            self.sector_etf = self.stock.sector.etf_symbol
+            self.sector_volatility_threshold = self.stock.sector.volatility_threshold
+        
+        super().save(*args, **kwargs)
 
 
 class StockAnalysis(BaseModel):
@@ -37,11 +201,12 @@ class StockAnalysis(BaseModel):
         help_text="User who requested this analysis"
     )
     stock = models.ForeignKey(
-        Stock, 
-        on_delete=models.CASCADE, 
-        related_name='analyses',
+        'data.Stock',
+        on_delete=models.CASCADE,
+        related_name='detailed_analyses',
         help_text="Stock being analyzed"
     )
+    
     sector_etf = models.CharField(
         max_length=10, 
         help_text="Sector ETF used for comparison"
@@ -214,7 +379,7 @@ class TechnicalIndicator(BaseModel):
     """
     
     stock = models.ForeignKey(
-        Stock,
+        'data.Stock',
         on_delete=models.CASCADE,
         related_name='technical_indicators'
     )
@@ -304,11 +469,11 @@ class RecommendationHistory(BaseModel):
     """
     
     stock = models.ForeignKey(
-        Stock,
+        'data.Stock',
         on_delete=models.CASCADE,
         related_name='recommendation_history'
     )
-    
+        
     previous_signal = models.CharField(
         max_length=4,
         choices=StockAnalysis.SIGNAL_CHOICES,
@@ -328,7 +493,7 @@ class RecommendationHistory(BaseModel):
     )
     
     analysis_result = models.ForeignKey(
-        StockAnalysis,
+        AnalysisResult,
         on_delete=models.CASCADE,
         related_name='recommendation_changes',
         help_text="Analysis that triggered this change"
@@ -360,7 +525,7 @@ class SectorAnalysis(BaseModel):
     """
     
     sector = models.ForeignKey(
-        Sector,
+        'data.Sector',
         on_delete=models.CASCADE,
         related_name='sector_analyses'
     )

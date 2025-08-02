@@ -1,330 +1,352 @@
 """
-Main analytics engine implementing the three-factor model from the prototype.
+Core Analytics Engine for MapleTrade.
+
+This module implements the three-factor model from the Jupyter prototype:
+1. Sector Outperformance (Stock vs Sector ETF)
+2. Analyst Target Signal (Target > Current Price)  
+3. Volatility Threshold (Stock volatility < Sector threshold)
 """
 
-from typing import Dict, Any, Optional, Tuple
+import logging
 from datetime import datetime, timedelta
 from decimal import Decimal
-import logging
-import time
+from typing import Dict, Optional, Tuple, Any
+from dataclasses import dataclass
 
-from django.core.cache import cache
-from core.models import Stock, Sector
-from data.providers import YahooFinanceProvider
-from .base import AnalysisResult
-from .technical import TechnicalIndicators
 from django.utils import timezone
-from data.providers.mock_provider import MockDataProvider
+from django.core.cache import cache
+
+from data.models import Stock, Sector, PriceData  # Updated import
+from data.providers.yahoo_finance import YahooFinanceProvider
+from .calculations import VolatilityCalculator, ReturnCalculator
+from .sector_mapping import SectorMapper
 
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class AnalysisSignals:
+    """Data class for the three analysis signals."""
+    outperformed_sector: bool
+    target_above_price: bool  
+    volatility_below_threshold: bool
+    
+    # Supporting data
+    stock_return: Optional[float] = None
+    sector_return: Optional[float] = None
+    volatility: Optional[float] = None
+    current_price: Optional[float] = None
+    target_price: Optional[float] = None
+    sector_threshold: Optional[float] = None
+
+
+@dataclass
+class AnalysisResult:
+    """Complete analysis result matching prototype output."""
+    signal: str  # 'BUY', 'SELL', 'HOLD'
+    confidence: str  # 'HIGH', 'MEDIUM', 'LOW'
+    
+    # Core metrics
+    stock_return: float
+    sector_return: float
+    outperformance: float
+    volatility: float
+    current_price: float
+    target_price: Optional[float]
+    
+    # Signal breakdown
+    signals: AnalysisSignals
+    
+    # Metadata
+    analysis_period_months: int
+    sector_name: str
+    sector_etf: str
+    timestamp: datetime
+    
+    # Explanation
+    rationale: str
+    conditions_met: Dict[str, bool]
+
+
 class AnalyticsEngine:
     """
-    Main analytics engine that orchestrates analysis and generates recommendations.
-    Implements the three-factor model from the prototype:
-    1. Outperformance vs sector ETF
-    2. Analyst target price vs current price
-    3. Volatility vs sector threshold
+    Main analytics engine implementing the three-factor model.
+    
+    This class replicates the logic from the Jupyter prototype:
+    - Fetches stock and sector data
+    - Calculates returns and volatility  
+    - Applies decision logic
+    - Returns structured analysis results
     """
     
-    def __init__(self, data_provider: Optional[YahooFinanceProvider] = None):
-        # Temporarily use mock provider
-        # self.data_provider = data_provider or YahooFinanceProvider()
-        self.data_provider = data_provider or MockDataProvider()
-        self.technical = TechnicalIndicators(self.data_provider)
-        self.logger = logging.getLogger(self.__class__.__name__)
+    def __init__(self):
+        self.data_provider = YahooFinanceProvider()
+        self.volatility_calc = VolatilityCalculator()
+        self.return_calc = ReturnCalculator()
+        self.sector_mapper = SectorMapper()
         
-    def analyze_stock(self, symbol: str, months: int = 6) -> AnalysisResult:
+    def analyze_stock(self, symbol: str, analysis_months: int = 12) -> AnalysisResult:
         """
-        Perform complete analysis on a stock using the three-factor model.
+        Main analysis method - replicates the prototype workflow.
         
         Args:
-            symbol: Stock ticker symbol
-            months: Analysis window in months (default 6)
+            symbol: Stock ticker symbol (e.g., 'NVDA')
+            analysis_months: Lookback period in months (default: 12)
             
         Returns:
-            AnalysisResult with recommendation and supporting data
+            AnalysisResult with signal and supporting data
+            
+        Raises:
+            AnalyticsEngineError: If analysis cannot be completed
         """
-        # Initialize result
-        result = AnalysisResult(symbol, 'HOLD')
-        
-        # Set date range
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=months * 30)
-        
         try:
-            # Get stock info
-            stock_info = self._get_or_update_stock(symbol)
-            if not stock_info:
-                result.add_error(f"Could not fetch stock info for {symbol}")
-                return result
+            logger.info(f"Starting analysis for {symbol} ({analysis_months} months)")
             
-            # Get sector ETF
-            sector_etf = self._get_sector_etf(stock_info)
-            result.add_metric('sector_etf', sector_etf)
+            # Step 1: Get or create stock record
+            stock = self._get_or_create_stock(symbol)
             
-            # Calculate the three factors
+            # Step 2: Ensure sector mapping
+            sector = self._ensure_sector_mapping(stock)
             
-            # Factor 1: Outperformance vs sector
-            outperformance, stock_return, etf_return = self._calculate_outperformance(
-                symbol, sector_etf, start_date, end_date
-            )
-            result.add_signal('outperformance', outperformance)
-            result.add_metric('stock_return', f"{stock_return:.2f}%")
-            result.add_metric('etf_return', f"{etf_return:.2f}%")
+            # Step 3: Get price data for analysis period
+            end_date = timezone.now()
+            start_date = end_date - timedelta(days=analysis_months * 30)
             
-            # Factor 2: Analyst target vs current price
-            target_above_current = False
-            if stock_info.target_price and stock_info.current_price:
-                target_above_current = stock_info.target_price > stock_info.current_price
-                target_spread = ((stock_info.target_price - stock_info.current_price) 
-                               / stock_info.current_price * 100)
-                result.add_metric('target_price', f"${stock_info.target_price:.2f}")
-                result.add_metric('current_price', f"${stock_info.current_price:.2f}")
-                result.add_metric('target_spread', f"{target_spread:.2f}%")
-            else:
-                result.add_metric('target_price', 'N/A')
-                result.add_metric('current_price', f"${stock_info.current_price:.2f}" 
-                                if stock_info.current_price else 'N/A')
+            stock_prices = self._get_price_data(symbol, start_date, end_date)
+            sector_prices = self._get_price_data(sector.etf_symbol, start_date, end_date)
             
-            result.add_signal('target_above_current', target_above_current)
+            # Step 4: Calculate core metrics
+            stock_return = self.return_calc.calculate_total_return(stock_prices)
+            sector_return = self.return_calc.calculate_total_return(sector_prices)
+            volatility = self.volatility_calc.calculate_annualized_volatility(stock_prices)
             
-            # Factor 3: Volatility vs threshold
-            volatility = self._calculate_volatility(symbol, start_date, end_date)
-            volatility_threshold = self._get_volatility_threshold(stock_info)
-            low_volatility = volatility < volatility_threshold if volatility else False
+            # Step 5: Generate signals
+            signals = self._generate_signals(stock, stock_return, sector_return, volatility, sector)
             
-            result.add_signal('low_volatility', low_volatility)
-            result.add_metric('volatility', f"{volatility:.2f}%" if volatility else 'N/A')
-            result.add_metric('volatility_threshold', f"{volatility_threshold:.2f}%")
+            # Step 6: Apply decision logic
+            final_signal, confidence = self._apply_decision_logic(signals)
             
-            # Apply decision logic
-            recommendation, rationale = self._apply_decision_logic(
-                outperformance, target_above_current, low_volatility
+            # Step 7: Build result
+            result = AnalysisResult(
+                signal=final_signal,
+                confidence=confidence,
+                stock_return=stock_return,
+                sector_return=sector_return,
+                outperformance=stock_return - sector_return,
+                volatility=volatility,
+                current_price=float(stock.current_price or 0),
+                target_price=float(stock.target_price) if stock.target_price else None,
+                signals=signals,
+                analysis_period_months=analysis_months,
+                sector_name=sector.name,
+                sector_etf=sector.etf_symbol,
+                timestamp=timezone.now(),
+                rationale=self._generate_rationale(signals, final_signal),
+                conditions_met=self._get_conditions_met(signals)
             )
             
-            result.recommendation = recommendation
-            result.add_metric('rationale', rationale)
+            # Step 8: Cache result
+            self._cache_result(symbol, analysis_months, result)
             
-            # Calculate confidence based on signal agreement
-            confidence = self._calculate_confidence(outperformance, target_above_current, low_volatility)
-            result.confidence = confidence
-            
-        except Exception as e:
-            logger.error(f"Error analyzing {symbol}: {e}")
-            result.add_error(str(e))
-        
-        return result
-    
-    def _get_or_update_stock(self, symbol: str) -> Optional[Stock]:
-        """Get stock from database or fetch from provider."""
-        try:
-            # Try to get from database first
-            stock = Stock.objects.filter(symbol__iexact=symbol).first()
-            
-            # If stock exists and was updated recently (within 1 hour), use it
-            if stock and not stock.needs_update:
-                self.logger.info(f"Using cached data for {symbol}")
-                return stock
-            
-            # Add delay to avoid rate limiting
-            time.sleep(2)  # Wait 2 seconds between API calls
-            
-            try:
-                # Update if needed or create new
-                stock_info = self.data_provider.get_stock_info(symbol)
-                
-                # Get or create sector
-                sector = None
-                if stock_info.sector:
-                    sector, _ = Sector.objects.get_or_create(
-                        name=stock_info.sector,
-                        defaults={
-                            'code': stock_info.sector[:4].upper(),
-                            'etf_symbol': self._map_sector_to_etf(stock_info.sector)
-                        }
-                    )
-                
-                if stock:
-                    # Update existing
-                    stock.name = stock_info.name
-                    stock.sector = sector
-                    stock.current_price = stock_info.current_price
-                    stock.target_price = stock_info.target_price
-                    stock.last_updated = timezone.now()
-                    stock.save()
-                else:
-                    # Create new
-                    stock = Stock.objects.create(
-                        symbol=symbol.upper(),
-                        name=stock_info.name,
-                        sector=sector,
-                        current_price=stock_info.current_price,
-                        target_price=stock_info.target_price,
-                        last_updated=datetime.now()
-                    )
-                
-                return stock
-                
-            except Exception as e:
-                # If API fails but we have cached data, use it
-                if stock:
-                    self.logger.warning(f"API failed for {symbol}, using cached data: {e}")
-                    return stock
-                else:
-                    raise
-                
-        except Exception as e:
-            logger.error(f"Error getting/updating stock {symbol}: {e}")
-            return None
-    
-    def _get_sector_etf(self, stock: Stock) -> str:
-        """Get the appropriate sector ETF for comparison."""
-        if stock.sector and stock.sector.etf_symbol:
-            return stock.sector.etf_symbol
-        
-        # Default to SPY if no sector
-        return 'SPY'
-    
-    def _map_sector_to_etf(self, sector_name: str) -> str:
-        """Map sector name to ETF symbol (same as prototype)."""
-        sector_etf_map = {
-            'Technology': 'XLK',
-            'Healthcare': 'XLV',
-            'Financials': 'XLF',
-            'Consumer Discretionary': 'XLY',
-            'Consumer Staples': 'XLP',
-            'Energy': 'XLE',
-            'Materials': 'XLB',
-            'Industrials': 'XLI',
-            'Utilities': 'XLU',
-            'Real Estate': 'XLRE',
-            'Communication Services': 'XLC'
-        }
-        
-        return sector_etf_map.get(sector_name, 'SPY')
-    
-    def _calculate_outperformance(self, symbol: str, etf_symbol: str, 
-                                  start_date: datetime, end_date: datetime) -> Tuple[bool, float, float]:
-        """
-        Calculate if stock outperformed its sector ETF.
-        
-        Returns:
-            Tuple of (outperformed: bool, stock_return: float, etf_return: float)
-        """
-        try:
-            # Check cache first
-            cache_key = f"returns_{symbol}_{etf_symbol}_{start_date.date()}_{end_date.date()}"
-            cached_result = cache.get(cache_key)
-            if cached_result:
-                return cached_result
-            
-            # Add delay between API calls
-            time.sleep(2)
-            
-            # Get technical analysis for both
-            stock_analysis = self.technical.analyze(symbol, start_date, end_date)
-            
-            # Add delay between API calls
-            time.sleep(2)
-            
-            etf_analysis = self.technical.analyze(etf_symbol, start_date, end_date)
-            
-            # Get returns
-            stock_return = stock_analysis.get('returns', {}).get('total_return', 0)
-            etf_return = etf_analysis.get('returns', {}).get('total_return', 0)
-            
-            outperformed = stock_return > etf_return
-            
-            result = (outperformed, stock_return, etf_return)
-            
-            # Cache the result for 1 hour
-            cache.set(cache_key, result, 3600)
-            
+            logger.info(f"Analysis complete for {symbol}: {final_signal}")
             return result
             
         except Exception as e:
-            logger.error(f"Error calculating outperformance: {e}")
-            return False, 0, 0
+            logger.error(f"Analysis failed for {symbol}: {e}")
+            raise AnalyticsEngineError(f"Analysis failed for {symbol}: {e}")
     
-    def _calculate_volatility(self, symbol: str, start_date: datetime, end_date: datetime) -> Optional[float]:
-        """Calculate annualized volatility for the period."""
+    def _get_or_create_stock(self, symbol: str) -> Stock:
+        """Get existing stock or create new one with fresh data."""
         try:
-            # Check cache first
-            cache_key = f"volatility_{symbol}_{start_date.date()}_{end_date.date()}"
-            cached_result = cache.get(cache_key)
-            if cached_result is not None:
-                return cached_result
+            stock = Stock.objects.get(symbol=symbol.upper())
             
-            # Add delay to avoid rate limiting
-            time.sleep(2)
+            # Update if data is stale
+            if stock.needs_update:
+                stock_info = self.data_provider.get_stock_info(symbol)
+                stock.name = stock_info.name
+                stock.current_price = stock_info.current_price
+                stock.target_price = stock_info.target_price
+                stock.market_cap = stock_info.market_cap
+                stock.exchange = stock_info.exchange
+                stock.currency = stock_info.currency
+                stock.last_updated = timezone.now()
+                stock.save()
+                
+        except Stock.DoesNotExist:
+            # Create new stock
+            stock_info = self.data_provider.get_stock_info(symbol)
+            stock = Stock.objects.create(
+                symbol=stock_info.symbol,
+                name=stock_info.name,
+                current_price=stock_info.current_price,
+                target_price=stock_info.target_price,
+                market_cap=stock_info.market_cap,
+                exchange=stock_info.exchange,
+                currency=stock_info.currency,
+                last_updated=timezone.now()
+            )
             
-            analysis = self.technical.analyze(symbol, start_date, end_date)
-            volatility = analysis.get('volatility')
-            
-            # Cache the result for 1 hour
-            if volatility is not None:
-                cache.set(cache_key, volatility, 3600)
-            
-            return volatility
-        except Exception as e:
-            logger.error(f"Error calculating volatility: {e}")
-            return None
+        return stock
     
-    def _get_volatility_threshold(self, stock: Stock) -> float:
-        """Get volatility threshold for the stock's sector."""
-        if stock.sector and stock.sector.volatility_threshold:
-            return float(stock.sector.volatility_threshold * 100)  # Convert to percentage
+    def _ensure_sector_mapping(self, stock: Stock) -> Sector:
+        """Ensure stock has proper sector classification."""
+        if stock.sector:
+            return stock.sector
+            
+        # Get sector from Yahoo Finance if not already mapped
+        stock_info = self.data_provider.get_stock_info(stock.symbol)
+        sector = self.sector_mapper.map_stock_to_sector(stock_info.sector)
         
-        # Default threshold
-        return 42.0
+        if sector:
+            stock.sector = sector
+            stock.save()
+            return sector
+        else:
+            # Fallback to default sector (SPY as general market)
+            default_sector, _ = Sector.objects.get_or_create(
+                code='MARKET',
+                defaults={
+                    'name': 'General Market',
+                    'etf_symbol': 'SPY',
+                    'volatility_threshold': Decimal('0.25'),
+                    'description': 'Default sector for unclassified stocks'
+                }
+            )
+            stock.sector = default_sector
+            stock.save()
+            return default_sector
     
-    def _apply_decision_logic(self, outperformance: bool, target_above_current: bool, 
-                             low_volatility: bool) -> Tuple[str, str]:
-        """
-        Apply the three-factor decision logic from the prototype.
+    def _get_price_data(self, symbol: str, start_date: datetime, end_date: datetime) -> list:
+        """Get price data for analysis period."""
+        cache_key = f"price_data_{symbol}_{start_date.date()}_{end_date.date()}"
+        cached_data = cache.get(cache_key)
         
-        Returns:
-            Tuple of (recommendation, rationale)
-        """
-        # Count positive signals
-        positive_signals = sum([outperformance, target_above_current])
+        if cached_data:
+            return cached_data
+            
+        # Fetch from provider
+        price_data = self.data_provider.get_price_history(symbol, start_date, end_date)
         
-        # Both positive signals = BUY regardless of volatility
+        # Cache for 1 hour
+        cache.set(cache_key, price_data, 3600)
+        
+        return price_data
+    
+    def _generate_signals(self, stock: Stock, stock_return: float, sector_return: float, 
+                         volatility: float, sector: Sector) -> AnalysisSignals:
+        """Generate the three core signals matching prototype logic."""
+        
+        # Signal 1: Outperformance vs sector
+        outperformed_sector = stock_return > sector_return
+        
+        # Signal 2: Target price above current price
+        target_above_price = False
+        if stock.target_price and stock.current_price:
+            target_above_price = stock.target_price > stock.current_price
+            
+        # Signal 3: Volatility below sector threshold
+        volatility_below_threshold = volatility < float(sector.volatility_threshold)
+        
+        return AnalysisSignals(
+            outperformed_sector=outperformed_sector,
+            target_above_price=target_above_price,
+            volatility_below_threshold=volatility_below_threshold,
+            stock_return=stock_return,
+            sector_return=sector_return,
+            volatility=volatility,
+            current_price=float(stock.current_price) if stock.current_price else None,
+            target_price=float(stock.target_price) if stock.target_price else None,
+            sector_threshold=float(sector.volatility_threshold)
+        )
+    
+    def _apply_decision_logic(self, signals: AnalysisSignals) -> Tuple[str, str]:
+        """
+        Apply the three-factor decision logic from prototype.
+        
+        Logic from prototype:
+        - Both outperformance AND target positive → BUY (any volatility)
+        - Exactly one positive AND low volatility → BUY  
+        - Exactly one positive AND high volatility → HOLD
+        - Both negative AND low volatility → HOLD
+        - Both negative AND high volatility → SELL
+        """
+        
+        positive_signals = sum([
+            signals.outperformed_sector,
+            signals.target_above_price
+        ])
+        
+        # Both signals positive
         if positive_signals == 2:
-            return 'BUY', 'Both outperformance and target are positive'
-        
-        # No positive signals
-        elif positive_signals == 0:
-            if low_volatility:
-                return 'HOLD', 'Both performance and target are negative, but volatility is low'
+            return "BUY", "HIGH"
+            
+        # Exactly one signal positive
+        elif positive_signals == 1:
+            if signals.volatility_below_threshold:
+                return "BUY", "MEDIUM"
             else:
-                return 'SELL', 'Both performance and target are negative, and volatility is high'
-        
-        # Exactly one positive signal
+                return "HOLD", "MEDIUM"
+                
+        # Both signals negative
         else:
-            if low_volatility:
-                return 'BUY', 'One positive signal and volatility is low'
+            if signals.volatility_below_threshold:
+                return "HOLD", "LOW"
             else:
-                return 'HOLD', 'One positive signal, but volatility is high'
+                return "SELL", "MEDIUM"
     
-    def _calculate_confidence(self, outperformance: bool, target_above_current: bool, 
-                            low_volatility: bool) -> float:
-        """Calculate confidence score based on signal agreement."""
-        # All three positive = high confidence
-        if all([outperformance, target_above_current, low_volatility]):
-            return 0.9
+    def _generate_rationale(self, signals: AnalysisSignals, final_signal: str) -> str:
+        """Generate human-readable explanation matching prototype style."""
         
-        # Two positive = medium-high confidence
-        positive_count = sum([outperformance, target_above_current, low_volatility])
-        if positive_count == 2:
-            return 0.7
+        rationale_parts = []
         
-        # One positive = medium confidence
-        elif positive_count == 1:
-            return 0.5
-        
-        # No positive = low confidence (but confident in negative)
+        # Performance vs sector
+        if signals.outperformed_sector:
+            perf_diff = signals.stock_return - signals.sector_return
+            rationale_parts.append(f"Stock outperformed sector by {perf_diff:.1%}")
         else:
-            return 0.3
+            perf_diff = signals.sector_return - signals.stock_return  
+            rationale_parts.append(f"Stock underperformed sector by {perf_diff:.1%}")
+            
+        # Target price analysis
+        if signals.target_price and signals.current_price:
+            if signals.target_above_price:
+                upside = (signals.target_price - signals.current_price) / signals.current_price
+                rationale_parts.append(f"Analyst target implies {upside:.1%} upside")
+            else:
+                rationale_parts.append("Analyst target below current price")
+        else:
+            rationale_parts.append("No analyst target available")
+            
+        # Volatility assessment
+        if signals.volatility_below_threshold:
+            rationale_parts.append(f"Volatility ({signals.volatility:.1%}) is acceptable for sector")
+        else:
+            rationale_parts.append(f"High volatility ({signals.volatility:.1%}) adds risk")
+            
+        # Final decision reasoning
+        if final_signal == "BUY":
+            rationale_parts.append("Multiple positive factors support a buy recommendation")
+        elif final_signal == "SELL":  
+            rationale_parts.append("Negative performance and high risk suggest selling")
+        else:
+            rationale_parts.append("Mixed signals suggest holding current position")
+            
+        return ". ".join(rationale_parts) + "."
+    
+    def _get_conditions_met(self, signals: AnalysisSignals) -> Dict[str, bool]:
+        """Return checklist of conditions met (matches prototype output)."""
+        return {
+            'outperformed_sector': signals.outperformed_sector,
+            'target_above_price': signals.target_above_price,
+            'volatility_acceptable': signals.volatility_below_threshold
+        }
+    
+    def _cache_result(self, symbol: str, months: int, result: AnalysisResult) -> None:
+        """Cache analysis result for 4 hours."""
+        cache_key = f"analysis_{symbol}_{months}"
+        cache.set(cache_key, result, 14400)  # 4 hours
+
+
+class AnalyticsEngineError(Exception):
+    """Custom exception for analytics engine errors."""
+    pass

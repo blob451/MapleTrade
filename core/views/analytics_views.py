@@ -302,7 +302,7 @@ def health_check(request):
         validation = validate_sector_mappings()
         
         # Test basic calculations
-        from core.services.calculations import ReturnCalculator
+        from analytics.services.calculations import ReturnCalculator
         calc = ReturnCalculator()
         
         health_data = {

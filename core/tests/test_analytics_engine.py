@@ -14,7 +14,7 @@ from django.utils import timezone
 
 from core.models import Stock, Sector, PriceData
 from core.services.analytics_engine import AnalyticsEngine, AnalysisSignals, AnalyticsEngineError
-from core.services.calculations import ReturnCalculator, VolatilityCalculator, CalculationError
+from analytics.services.calculations import ReturnCalculator, VolatilityCalculator, CalculationError
 from core.services.sector_mapping import SectorMapper
 from data.providers.base import StockInfo, PriceData as ProviderPriceData
 
