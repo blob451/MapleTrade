@@ -1,86 +1,106 @@
 """
-Admin configuration for core models.
+Admin configuration for MapleTrade core models.
 """
 
 from django.contrib import admin
 from django.utils.html import format_html
-from django.db.models import Count, Avg
-from django.utils import timezone
-
 from .models import Sector, Stock, PriceData, AnalysisResult, UserPortfolio, PortfolioStock
 
 
 @admin.register(Sector)
 class SectorAdmin(admin.ModelAdmin):
-    list_display = ['name', 'code', 'etf_symbol', 'volatility_threshold', 'stock_count']
-    list_filter = ['created_at']
-    search_fields = ['name', 'code', 'etf_symbol']
-    ordering = ['name']
+    list_display = ('name', 'code', 'etf_symbol', 'volatility_threshold', 'risk_category')
+    list_filter = ('code',)
+    search_fields = ('name', 'code', 'etf_symbol')
+    ordering = ('name',)
     
-    def stock_count(self, obj):
-        return obj.stock_set.count()
-    stock_count.short_description = 'Stocks'
+    def risk_category(self, obj):
+        """Display risk category with color coding."""
+        category = obj.risk_category
+        if category == 'Low Risk':
+            color = 'green'
+        elif category == 'Medium Risk':
+            color = 'orange'
+        else:
+            color = 'red'
+        return format_html(
+            '<span style="color: {};">{}</span>',
+            color,
+            category
+        )
+    risk_category.short_description = 'Risk Level'
 
 
 @admin.register(Stock)
 class StockAdmin(admin.ModelAdmin):
-    list_display = ['symbol', 'name', 'sector', 'current_price', 'target_price', 
-                    'price_change_indicator', 'is_active', 'last_updated']
-    list_filter = ['sector', 'is_active', 'last_updated']
-    search_fields = ['symbol', 'name']
-    readonly_fields = ['last_updated', 'created_at', 'updated_at']
-    autocomplete_fields = ['sector']
-    ordering = ['symbol']
+    list_display = ('symbol', 'name', 'sector', 'current_price', 'target_price', 
+                   'target_upside_display', 'is_active', 'last_updated')
+    list_filter = ('is_active', 'sector', 'exchange')
+    search_fields = ('symbol', 'name')
+    raw_id_fields = ('sector',)
+    ordering = ('symbol',)
+    date_hierarchy = 'last_updated'
     
-    fieldsets = (
-        ('Basic Information', {
-            'fields': ('symbol', 'name', 'sector', 'exchange', 'currency')
-        }),
-        ('Price Data', {
-            'fields': ('current_price', 'target_price', 'market_cap')
-        }),
-        ('Status', {
-            'fields': ('is_active', 'last_updated', 'created_at', 'updated_at')
-        }),
-    )
-    
-    def price_change_indicator(self, obj):
-        if obj.current_price and obj.target_price:
-            diff = obj.target_price - obj.current_price
-            percent = (diff / obj.current_price) * 100
-            color = 'green' if diff > 0 else 'red' if diff < 0 else 'gray'
+    def target_upside_display(self, obj):
+        """Display target upside as percentage."""
+        upside = obj.target_upside
+        if upside is not None:
+            color = 'green' if upside > 0 else 'red'
             return format_html(
-                '<span style="color: {};">{:+.2f}%</span>',
-                color, percent
+                '<span style="color: {};">{:.1%}</span>',
+                color,
+                upside
             )
         return '-'
-    price_change_indicator.short_description = 'Target vs Current'
+    target_upside_display.short_description = 'Target Upside'
+    
+    actions = ['mark_active', 'mark_inactive']
+    
+    def mark_active(self, request, queryset):
+        queryset.update(is_active=True)
+    mark_active.short_description = "Mark selected stocks as active"
+    
+    def mark_inactive(self, request, queryset):
+        queryset.update(is_active=False)
+    mark_inactive.short_description = "Mark selected stocks as inactive"
 
 
 @admin.register(PriceData)
 class PriceDataAdmin(admin.ModelAdmin):
-    list_display = ['stock', 'date', 'open_price', 'close_price', 'volume']
-    list_filter = ['date', 'stock__sector']
-    search_fields = ['stock__symbol', 'stock__name']
+    list_display = ('stock', 'date', 'open_price', 'close_price', 'volume', 'daily_return_display')
+    list_filter = ('date', 'stock__sector')
+    search_fields = ('stock__symbol', 'stock__name')
+    raw_id_fields = ('stock',)
+    ordering = ('-date', 'stock')
     date_hierarchy = 'date'
-    readonly_fields = ['created_at', 'updated_at']
-    ordering = ['-date', 'stock__symbol']
     
-    def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        return qs.select_related('stock', 'stock__sector')
+    def daily_return_display(self, obj):
+        """Display daily return as percentage."""
+        ret = obj.daily_return
+        if ret is not None:
+            color = 'green' if ret > 0 else 'red'
+            return format_html(
+                '<span style="color: {};">{:.2%}</span>',
+                color,
+                ret
+            )
+        return '-'
+    daily_return_display.short_description = 'Daily Return'
 
 
 @admin.register(AnalysisResult)
 class AnalysisResultAdmin(admin.ModelAdmin):
-    list_display = ['stock', 'signal', 'confidence', 'analysis_date', 
-                    'outperformed_sector', 'target_above_current', 'low_volatility']
-    list_filter = ['signal', 'analysis_date', 'outperformed_sector', 
-                   'target_above_current', 'low_volatility']
-    search_fields = ['stock__symbol', 'stock__name', 'rationale']
-    readonly_fields = ['analysis_date', 'created_at', 'updated_at']
+    list_display = ('stock', 'analysis_date', 'signal', 'confidence', 'outperformed_sector', 
+                   'target_above_price', 'volatility_below_threshold', 'is_recent')
+    list_filter = ('signal', 'outperformed_sector', 'target_above_price', 
+                  'volatility_below_threshold', 'analysis_date')
+    search_fields = ('stock__symbol', 'stock__name', 'rationale')
+    raw_id_fields = ('stock',)
+    ordering = ('-analysis_date',)
     date_hierarchy = 'analysis_date'
-    ordering = ['-analysis_date']
+    
+    readonly_fields = ('is_recent', 'target_upside', 'conditions_met_count', 
+                      'is_strong_signal', 'conditions_summary')
     
     fieldsets = (
         ('Analysis Info', {
@@ -89,69 +109,88 @@ class AnalysisResultAdmin(admin.ModelAdmin):
         ('Recommendation', {
             'fields': ('signal', 'confidence', 'rationale')
         }),
-        ('Three-Factor Signals', {
-            'fields': ('outperformed_sector', 'target_above_current', 'low_volatility')
+        ('Performance Metrics', {
+            'fields': ('stock_return', 'sector_return', 'outperformance', 'volatility')
         }),
-        ('Metrics', {
-            'fields': ('stock_return', 'sector_return', 'volatility')
+        ('Price Information', {
+            'fields': ('current_price', 'target_price', 'target_upside')
+        }),
+        ('Three-Factor Signals', {
+            'fields': ('outperformed_sector', 'target_above_price', 'volatility_below_threshold',
+                      'conditions_met_count', 'is_strong_signal', 'conditions_summary')
+        }),
+        ('Sector Information', {
+            'fields': ('sector_name', 'sector_etf', 'sector_volatility_threshold')
         }),
         ('Metadata', {
-            'fields': ('is_valid', 'errors', 'created_at', 'updated_at'),
+            'fields': ('engine_version', 'is_valid', 'is_recent', 'errors', 'raw_data'),
             'classes': ('collapse',)
-        }),
+        })
     )
     
-    def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        return qs.select_related('stock', 'stock__sector')
+    def signal_display(self, obj):
+        """Display signal with color coding."""
+        colors = {
+            'BUY': 'green',
+            'HOLD': 'orange',
+            'SELL': 'red'
+        }
+        return format_html(
+            '<span style="color: {}; font-weight: bold;">{}</span>',
+            colors.get(obj.signal, 'black'),
+            obj.signal
+        )
+    signal_display.short_description = 'Signal'
+
+
+@admin.register(UserPortfolio)
+class UserPortfolioAdmin(admin.ModelAdmin):
+    list_display = ('name', 'user', 'is_default', 'stock_count', 'created_at')
+    list_filter = ('is_default', 'created_at')
+    search_fields = ('name', 'user__username', 'description')
+    raw_id_fields = ('user',)
+    ordering = ('user', 'name')
+    
+    def stock_count(self, obj):
+        """Display number of stocks in portfolio."""
+        return obj.stocks.count()
+    stock_count.short_description = 'Stocks'
 
 
 class PortfolioStockInline(admin.TabularInline):
     model = PortfolioStock
     extra = 1
-    fields = ['stock', 'shares', 'purchase_price', 'added_date', 'notes']
-    readonly_fields = ['added_date']
-    autocomplete_fields = ['stock']
-
-
-@admin.register(UserPortfolio)
-class UserPortfolioAdmin(admin.ModelAdmin):
-    list_display = ['name', 'user', 'is_default', 'stock_count', 'created_at']
-    list_filter = ['is_default', 'created_at']
-    search_fields = ['name', 'user__username', 'description']
-    readonly_fields = ['created_at', 'updated_at']
-    inlines = [PortfolioStockInline]
-    
-    fieldsets = (
-        ('Portfolio Info', {
-            'fields': ('user', 'name', 'description', 'is_default')
-        }),
-        ('Timestamps', {
-            'fields': ('created_at', 'updated_at'),
-            'classes': ('collapse',)
-        }),
-    )
-    
-    def stock_count(self, obj):
-        return obj.stocks.count()
-    stock_count.short_description = 'Stocks'
-    
-    def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        return qs.select_related('user').annotate(
-            stock_count_annotation=Count('stocks')
-        )
+    raw_id_fields = ('stock',)
+    readonly_fields = ('current_value', 'unrealized_pnl')
 
 
 @admin.register(PortfolioStock)
 class PortfolioStockAdmin(admin.ModelAdmin):
-    list_display = ['portfolio', 'stock', 'shares', 'purchase_price', 'added_date']
-    list_filter = ['added_date', 'portfolio']
-    search_fields = ['stock__symbol', 'stock__name', 'portfolio__name']
-    readonly_fields = ['added_date', 'created_at', 'updated_at']
-    autocomplete_fields = ['portfolio', 'stock']
-    ordering = ['-added_date']
+    list_display = ('portfolio', 'stock', 'shares', 'purchase_price', 
+                   'current_value', 'unrealized_pnl', 'added_date')
+    list_filter = ('added_date', 'portfolio')
+    search_fields = ('stock__symbol', 'stock__name', 'portfolio__name')
+    raw_id_fields = ('portfolio', 'stock')
+    ordering = ('-added_date',)
+    date_hierarchy = 'added_date'
     
-    def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        return qs.select_related('portfolio', 'portfolio__user', 'stock', 'stock__sector')
+    readonly_fields = ('current_value', 'unrealized_pnl')
+    
+    fieldsets = (
+        ('Portfolio & Stock', {
+            'fields': ('portfolio', 'stock', 'added_date')
+        }),
+        ('Position Details', {
+            'fields': ('shares', 'purchase_price', 'current_value', 'unrealized_pnl')
+        }),
+        ('Notes', {
+            'fields': ('notes',),
+            'classes': ('wide',)
+        })
+    )
+
+
+# Customize admin site header
+admin.site.site_header = 'MapleTrade Administration'
+admin.site.site_title = 'MapleTrade Admin'
+admin.site.index_title = 'Welcome to MapleTrade Administration'

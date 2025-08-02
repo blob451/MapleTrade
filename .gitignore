@@ -101,3 +101,18 @@ dmypy.json
 # Cache directories
 .cache/
 __pycache__/
+
+# Backup files
+backups/
+*.backup
+*_backup_*
+*.bak
+
+# Temporary files
+*.tmp
+*.temp
+*~
+
+# MapleTrade specific
+logs/
+*.log

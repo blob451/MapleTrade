@@ -7,6 +7,7 @@ from django.db import models
 from django.utils import timezone
 from django.contrib.auth import get_user_model
 from datetime import timedelta
+from decimal import Decimal
 
 User = get_user_model()
 
@@ -46,6 +47,22 @@ class Sector(BaseModel):
     
     def __str__(self):
         return f"{self.name} ({self.code})"
+    
+    @property
+    def risk_category(self):
+        """Categorize sector by risk based on volatility threshold."""
+        if self.volatility_threshold < Decimal('0.30'):
+            return 'Low Risk'
+        elif self.volatility_threshold < Decimal('0.45'):
+            return 'Medium Risk'
+        else:
+            return 'High Risk'
+    
+    @property
+    def is_defensive(self):
+        """Check if sector is considered defensive."""
+        defensive_codes = ['UTIL', 'CONS', 'HLTH', 'REAL']
+        return self.code in defensive_codes
 
 
 class Stock(BaseModel):
@@ -102,6 +119,19 @@ class Stock(BaseModel):
         if not self.last_updated:
             return True
         return (timezone.now() - self.last_updated).total_seconds() > 3600
+    
+    @property
+    def target_upside(self):
+        """Calculate percentage upside to target price."""
+        if self.target_price and self.current_price and self.current_price > 0:
+            return float((self.target_price - self.current_price) / self.current_price)
+        return None
+    
+    @property
+    def has_target_upside(self):
+        """Check if stock has positive target upside."""
+        upside = self.target_upside
+        return upside is not None and upside > 0
 
 
 class PriceData(BaseModel):
@@ -129,15 +159,31 @@ class PriceData(BaseModel):
         indexes = [
             models.Index(fields=['stock', 'date']),
             models.Index(fields=['date']),
+            models.Index(fields=['stock', '-date']),  # For latest price queries
         ]
     
     def __str__(self):
         return f"{self.stock.symbol} - {self.date}: ${self.close_price}"
+    
+    @property
+    def daily_return(self):
+        """Calculate daily return if previous day exists."""
+        try:
+            previous = PriceData.objects.filter(
+                stock=self.stock,
+                date__lt=self.date
+            ).order_by('-date').first()
+            
+            if previous and previous.close_price > 0:
+                return float((self.close_price - previous.close_price) / previous.close_price)
+        except:
+            pass
+        return None
 
 
 class AnalysisResult(BaseModel):
     """
-    Model for storing analysis results.
+    Model for storing analysis results from the three-factor model.
     """
     stock = models.ForeignKey(Stock, on_delete=models.CASCADE, related_name='analysis_results')
     analysis_date = models.DateTimeField(default=timezone.now, help_text="When analysis was performed")
@@ -157,12 +203,7 @@ class AnalysisResult(BaseModel):
         help_text="Confidence score (0-1)"
     )
     
-    # Three-factor signals
-    outperformed_sector = models.BooleanField(default=False, help_text="Stock outperformed sector ETF")
-    target_above_current = models.BooleanField(default=False, help_text="Target price above current")
-    low_volatility = models.BooleanField(default=False, help_text="Volatility below threshold")
-    
-    # Metrics
+    # Performance Metrics
     stock_return = models.DecimalField(
         max_digits=10, 
         decimal_places=4, 
@@ -177,6 +218,15 @@ class AnalysisResult(BaseModel):
         blank=True,
         help_text="Sector ETF return percentage"
     )
+    outperformance = models.DecimalField(
+        max_digits=10, 
+        decimal_places=4, 
+        null=True, 
+        blank=True,
+        help_text="Stock outperformance vs sector"
+    )
+    
+    # Risk Metrics
     volatility = models.DecimalField(
         max_digits=10, 
         decimal_places=4, 
@@ -185,8 +235,41 @@ class AnalysisResult(BaseModel):
         help_text="Annualized volatility percentage"
     )
     
+    # Price Information
+    current_price = models.DecimalField(
+        max_digits=12, 
+        decimal_places=4, 
+        null=True, 
+        blank=True,
+        help_text="Stock price at analysis time"
+    )
+    target_price = models.DecimalField(
+        max_digits=12, 
+        decimal_places=4, 
+        null=True, 
+        blank=True,
+        help_text="Analyst target price at analysis time"
+    )
+    
+    # Three-factor signals
+    outperformed_sector = models.BooleanField(default=False, help_text="Stock outperformed sector ETF")
+    target_above_price = models.BooleanField(default=False, help_text="Target price above current")
+    volatility_below_threshold = models.BooleanField(default=False, help_text="Volatility below sector threshold")
+    
+    # Sector Information (cached for historical reference)
+    sector_name = models.CharField(max_length=100, blank=True, help_text="Sector name at time of analysis")
+    sector_etf = models.CharField(max_length=10, blank=True, help_text="Sector ETF used for comparison")
+    sector_volatility_threshold = models.DecimalField(
+        max_digits=5, 
+        decimal_places=4, 
+        null=True,
+        blank=True,
+        help_text="Sector volatility threshold at time of analysis"
+    )
+    
     # Analysis metadata
     rationale = models.TextField(blank=True, help_text="Explanation for the recommendation")
+    engine_version = models.CharField(max_length=20, default='1.0.0', help_text="Analytics engine version")
     errors = models.JSONField(default=list, blank=True, help_text="Any errors during analysis")
     raw_data = models.JSONField(default=dict, blank=True, help_text="Complete analysis data")
     
@@ -210,6 +293,49 @@ class AnalysisResult(BaseModel):
     def is_recent(self):
         """Check if analysis is recent (within 24 hours)."""
         return (timezone.now() - self.analysis_date).total_seconds() < 86400
+    
+    @property
+    def target_upside(self):
+        """Calculate target upside percentage."""
+        if self.target_price and self.current_price and self.current_price > 0:
+            return float((self.target_price - self.current_price) / self.current_price)
+        return None
+    
+    @property
+    def conditions_met_count(self):
+        """Count how many of the three conditions are met."""
+        return sum([self.outperformed_sector, self.target_above_price, self.volatility_below_threshold])
+    
+    @property
+    def is_strong_signal(self):
+        """Check if this is a strong signal (2+ conditions met)."""
+        return self.conditions_met_count >= 2
+    
+    @property
+    def conditions_summary(self):
+        """Get summary of conditions met."""
+        conditions = []
+        if self.outperformed_sector:
+            conditions.append("Outperformed sector")
+        if self.target_above_price:
+            conditions.append("Positive analyst outlook")
+        if self.volatility_below_threshold:
+            conditions.append("Low volatility")
+        return ", ".join(conditions) if conditions else "No conditions met"
+    
+    def save(self, *args, **kwargs):
+        """Calculate derived fields before saving."""
+        # Calculate outperformance if we have the data
+        if self.stock_return is not None and self.sector_return is not None:
+            self.outperformance = self.stock_return - self.sector_return
+        
+        # Set sector information if not already set
+        if self.stock.sector and not self.sector_name:
+            self.sector_name = self.stock.sector.name
+            self.sector_etf = self.stock.sector.etf_symbol
+            self.sector_volatility_threshold = self.stock.sector.volatility_threshold
+        
+        super().save(*args, **kwargs)
 
 
 class UserPortfolio(BaseModel):
@@ -268,3 +394,19 @@ class PortfolioStock(BaseModel):
     
     def __str__(self):
         return f"{self.portfolio.name} - {self.stock.symbol}"
+    
+    @property
+    def current_value(self):
+        """Calculate current value of position."""
+        if self.shares and self.stock.current_price:
+            return float(self.shares * self.stock.current_price)
+        return None
+    
+    @property
+    def unrealized_pnl(self):
+        """Calculate unrealized profit/loss."""
+        if self.shares and self.purchase_price and self.stock.current_price:
+            cost_basis = float(self.shares * self.purchase_price)
+            current_value = float(self.shares * self.stock.current_price)
+            return current_value - cost_basis
+        return None
