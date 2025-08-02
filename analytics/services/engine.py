@@ -13,6 +13,8 @@ from core.models import Stock, Sector
 from data.providers import YahooFinanceProvider
 from .base import AnalysisResult
 from .technical import TechnicalIndicators
+from django.utils import timezone
+from data.providers.mock_provider import MockDataProvider
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +29,9 @@ class AnalyticsEngine:
     """
     
     def __init__(self, data_provider: Optional[YahooFinanceProvider] = None):
-        self.data_provider = data_provider or YahooFinanceProvider()
+        # Temporarily use mock provider
+        # self.data_provider = data_provider or YahooFinanceProvider()
+        self.data_provider = data_provider or MockDataProvider()
         self.technical = TechnicalIndicators(self.data_provider)
         self.logger = logging.getLogger(self.__class__.__name__)
         
@@ -148,7 +152,7 @@ class AnalyticsEngine:
                     stock.sector = sector
                     stock.current_price = stock_info.current_price
                     stock.target_price = stock_info.target_price
-                    stock.last_updated = datetime.now()
+                    stock.last_updated = timezone.now()
                     stock.save()
                 else:
                     # Create new

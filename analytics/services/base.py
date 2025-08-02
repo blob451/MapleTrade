@@ -7,6 +7,7 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 from decimal import Decimal
 import logging
+from django.utils import timezone  # Add this import
 
 
 class BaseAnalyzer(ABC):
@@ -42,7 +43,7 @@ class AnalysisResult:
         self.symbol = symbol
         self.recommendation = recommendation  # BUY, HOLD, SELL
         self.confidence = confidence
-        self.timestamp = datetime.now()
+        self.timestamp = timezone.now()  # Changed from datetime.now()
         self.signals = {}
         self.metrics = {}
         self.errors = []

@@ -146,8 +146,9 @@ class StockAnalyzer:
                 analysis.is_high_volatility = analysis.volatility > analysis.volatility_threshold
                 
                 # Update signal strength based on confidence
-                analysis.signal_strength = analysis.confidence_score
-                
+                # analysis.signal_strength = analysis.confidence_score
+                analysis.relative_performance = analysis.stock_return - analysis.sector_return
+                analysis.is_high_volatility = analysis.volatility > analysis.volatility_threshold
                 # Save updates
                 analysis.save()
                 
