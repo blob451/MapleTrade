@@ -1,398 +1,457 @@
 """
-API views for the analytics engine.
+Core views using the orchestrator pattern.
 
-This module provides REST API endpoints for running stock analysis
-and retrieving analysis results.
+All views now use CoreOrchestrator for business logic operations.
 """
 
 import logging
+from datetime import datetime, timedelta
 from decimal import Decimal
-from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
-from django.core.cache import cache
-from django.utils import timezone
-from datetime import timedelta
 
-from analytics.services.engine import AnalyticsEngine, AnalyticsEngineError  # Updated
-from data.models import Stock
-from analytics.models import AnalysisResult
-from core.serializers import AnalysisResultSerializer, StockSerializer
+from django.shortcuts import render, redirect, get_object_or_404
+from django.contrib.auth.decorators import login_required
+from django.contrib import messages
+from django.http import JsonResponse, HttpResponseBadRequest
+from django.views.decorators.http import require_http_methods
+from django.views.decorators.cache import cache_page
+from django.utils import timezone
+from django.core.paginator import Paginator
+
+from core.services import get_orchestrator, OrchestratorError
+from users.models import UserPortfolio
 
 logger = logging.getLogger(__name__)
 
 
-@api_view(['POST'])
-@permission_classes([])  # Allow unauthenticated for testing
-def analyze_stock(request):
-    """
-    Run analysis on a stock symbol.
-    
-    POST /api/analyze/
-    {
-        "symbol": "NVDA",
-        "analysis_months": 12
-    }
-    """
+def index(request):
+    """Home page with market overview."""
+    orchestrator = get_orchestrator()
     
     try:
-        # Validate input
-        symbol = request.data.get('symbol', '').strip().upper()
-        analysis_months = request.data.get('analysis_months', 12)
+        # Get market overview
+        market_data = orchestrator.get_market_overview()
         
-        if not symbol:
-            return Response(
-                {'error': 'Symbol is required'}, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        # Get sector performance
+        sector_data = orchestrator.get_sector_performance()
         
-        if not (1 <= analysis_months <= 60):
-            return Response(
-                {'error': 'Analysis months must be between 1 and 60'}, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Check cache first
-        cache_key = f"analysis_{symbol}_{analysis_months}"
-        cached_result = cache.get(cache_key)
-        
-        if cached_result:
-            logger.info(f"Returning cached analysis for {symbol}")
-            return Response({
-                'success': True,
-                'cached': True,
-                'analysis': cached_result,
-                'timestamp': timezone.now()
-            })
-        
-        # Run analysis
-        logger.info(f"Running analysis for {symbol} ({analysis_months} months)")
-        
-        engine = AnalyticsEngine()
-        result = engine.analyze_stock(symbol, analysis_months)
-        
-        # Convert result to dict for API response
-        analysis_data = {
-            'symbol': symbol,
-            'signal': result.signal,
-            'confidence': result.confidence,
-            'metrics': {
-                'stock_return': result.stock_return,
-                'sector_return': result.sector_return,
-                'outperformance': result.outperformance,
-                'volatility': result.volatility,
-                'current_price': result.current_price,
-                'target_price': result.target_price,
-                'target_upside': (
-                    (result.target_price - result.current_price) / result.current_price 
-                    if result.target_price and result.current_price > 0 else None
-                )
-            },
-            'signals': {
-                'outperformed_sector': result.signals.outperformed_sector,
-                'target_above_price': result.signals.target_above_price,
-                'volatility_below_threshold': result.signals.volatility_below_threshold
-            },
-            'sector': {
-                'name': result.sector_name,
-                'etf': result.sector_etf
-            },
-            'analysis': {
-                'period_months': result.analysis_period_months,
-                'timestamp': result.timestamp.isoformat(),
-                'rationale': result.rationale,
-                'conditions_met': result.conditions_met
-            }
+        context = {
+            'market_data': market_data,
+            'sector_data': sector_data,
+            'last_updated': timezone.now()
         }
         
-        # Cache result
-        cache.set(cache_key, analysis_data, 14400)  # 4 hours
+        return render(request, 'core/index.html', context)
         
-        # Save to database
-        analysis_record = AnalysisResult.objects.create(
-            stock=Stock.objects.get(symbol=symbol),
-            analysis_period_months=analysis_months,
-            signal=result.signal,
-            confidence=Decimal(str(result.confidence)),
-            stock_return=Decimal(str(result.stock_return)),
-            sector_return=Decimal(str(result.sector_return)),
-            outperformance=Decimal(str(result.outperformance)),
-            volatility=Decimal(str(result.volatility)),
-            current_price=Decimal(str(result.current_price)),
-            target_price=Decimal(str(result.target_price)) if result.target_price else None,
-            outperformed_sector=result.signals.outperformed_sector,
-            target_above_price=result.signals.target_above_price,
-            volatility_below_threshold=result.signals.volatility_below_threshold,
-            sector_name=result.sector_name,
-            sector_etf=result.sector_etf,
-            rationale=result.rationale,
-            raw_data=analysis_data
-        )
-        
-        logger.info(f"Analysis complete for {symbol}: {result.signal}")
-        
-        return Response({
-            'success': True,
-            'cached': False,
-            'analysis': analysis_data,
-            'timestamp': timezone.now()
-        })
-        
-    except AnalyticsEngineError as e:
-        logger.error(f"Analytics engine error for {symbol}: {e}")
-        return Response(
-            {'error': f'Analysis failed: {str(e)}'}, 
-            status=status.HTTP_422_UNPROCESSABLE_ENTITY
-        )
-    
-    except Exception as e:
-        logger.error(f"Unexpected error analyzing {symbol}: {e}")
-        return Response(
-            {'error': 'Internal server error'}, 
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+    except OrchestratorError as e:
+        logger.error(f"Error loading index: {e}")
+        messages.error(request, "Unable to load market data. Please try again later.")
+        return render(request, 'core/index.html', {})
 
 
-@api_view(['GET'])
-@permission_classes([])  # Allow unauthenticated for testing
-def get_analysis_history(request, symbol):
-    """
-    Get analysis history for a stock.
-    
-    GET /api/analyze/{symbol}/history/
-    """
+@login_required
+def dashboard(request):
+    """User dashboard with portfolio summary."""
+    orchestrator = get_orchestrator()
     
     try:
-        symbol = symbol.upper()
+        # Get user portfolios
+        portfolios = UserPortfolio.objects.filter(
+            user=request.user,
+            is_active=True
+        ).order_by('-created_at')
         
-        # Get stock
-        try:
-            stock = Stock.objects.get(symbol=symbol)
-        except Stock.DoesNotExist:
-            return Response(
-                {'error': f'Stock {symbol} not found'}, 
-                status=status.HTTP_404_NOT_FOUND
-            )
+        # Get summary for each portfolio
+        portfolio_summaries = []
+        total_value = Decimal('0')
+        
+        for portfolio in portfolios:
+            try:
+                summary = orchestrator.get_portfolio_summary(portfolio.id)
+                portfolio_summaries.append(summary)
+                total_value += Decimal(str(summary['total_value']))
+            except Exception as e:
+                logger.error(f"Error getting summary for portfolio {portfolio.id}: {e}")
         
         # Get recent analyses
-        analyses = AnalysisResult.objects.filter(stock=stock).order_by('-analysis_date')[:10]
-        
-        if not analyses:
-            return Response({
-                'symbol': symbol,
-                'history': [],
-                'message': 'No analysis history found'
-            })
-        
-        # Serialize results
-        history = []
-        for analysis in analyses:
-            history.append({
-                'signal': analysis.signal,
-                'confidence': float(analysis.confidence),
-                'analysis_date': analysis.analysis_date.isoformat(),
-                'stock_return': float(analysis.stock_return) if analysis.stock_return else None,
-                'sector_return': float(analysis.sector_return) if analysis.sector_return else None,
-                'outperformance': float(analysis.outperformance) if analysis.outperformance else None,
-                'volatility': float(analysis.volatility) if analysis.volatility else None,
-                'current_price': float(analysis.current_price) if analysis.current_price else None,
-                'target_price': float(analysis.target_price) if analysis.target_price else None,
-                'sector_name': analysis.sector_name,
-                'conditions_met': {
-                    'outperformed_sector': analysis.outperformed_sector,
-                    'target_above_price': analysis.target_above_price,
-                    'volatility_below_threshold': analysis.volatility_below_threshold
-                }
-            })
-        
-        return Response({
-            'symbol': symbol,
-            'stock_name': stock.name,
-            'current_sector': stock.sector.name if stock.sector else None,
-            'history': history,
-            'total_analyses': len(history)
-        })
-        
-    except Exception as e:
-        logger.error(f"Error getting analysis history for {symbol}: {e}")
-        return Response(
-            {'error': 'Internal server error'}, 
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        recent_analyses = orchestrator.analysis_service.get_analysis_history(
+            request.user,
+            limit=5
         )
-
-
-@api_view(['GET'])
-@permission_classes([])  # Allow unauthenticated for testing
-def get_stock_info(request, symbol):
-    """
-    Get basic stock information.
-    
-    GET /api/stocks/{symbol}/
-    """
-    
-    try:
-        symbol = symbol.upper()
         
-        # Try to get from database first
-        try:
-            stock = Stock.objects.get(symbol=symbol)
-            
-            # Check if data needs updating
-            if stock.needs_update:
-                # Refresh stock data
-                engine = AnalyticsEngine()
-                updated_stock = engine._get_or_create_stock(symbol)
-                stock = updated_stock
-            
-            response_data = {
-                'symbol': stock.symbol,
-                'name': stock.name,
-                'sector': {
-                    'name': stock.sector.name if stock.sector else None,
-                    'code': stock.sector.code if stock.sector else None,
-                    'etf': stock.sector.etf_symbol if stock.sector else None
-                },
-                'exchange': stock.exchange,
-                'currency': stock.currency,
-                'market_cap': stock.market_cap,
-                'current_price': float(stock.current_price) if stock.current_price else None,
-                'target_price': float(stock.target_price) if stock.target_price else None,
-                'target_upside': stock.target_upside,
-                'last_updated': stock.last_updated.isoformat() if stock.last_updated else None,
-                'is_active': stock.is_active
-            }
-            
-            # Add latest analysis if available
-            latest_analysis = stock.analysis_results.first()
-            if latest_analysis:
-                response_data['latest_analysis'] = {
-                    'signal': latest_analysis.signal,
-                    'confidence': float(latest_analysis.confidence),
-                    'analysis_date': latest_analysis.analysis_date.isoformat(),
-                    'rationale': latest_analysis.rationale
-                }
-            
-            return Response(response_data)
-            
-        except Stock.DoesNotExist:
-            # Stock not in database, fetch from provider
-            engine = AnalyticsEngine()
-            stock = engine._get_or_create_stock(symbol)
-            
-            return Response({
-                'symbol': stock.symbol,
-                'name': stock.name,
-                'sector': {
-                    'name': stock.sector.name if stock.sector else None,
-                    'code': stock.sector.code if stock.sector else None,
-                    'etf': stock.sector.etf_symbol if stock.sector else None
-                },
-                'exchange': stock.exchange,
-                'currency': stock.currency,
-                'market_cap': stock.market_cap,
-                'current_price': float(stock.current_price) if stock.current_price else None,
-                'target_price': float(stock.target_price) if stock.target_price else None,
-                'target_upside': stock.target_upside,
-                'last_updated': stock.last_updated.isoformat() if stock.last_updated else None,
-                'is_active': stock.is_active,
-                'note': 'Newly created stock record'
-            })
-            
-    except Exception as e:
-        logger.error(f"Error getting stock info for {symbol}: {e}")
-        return Response(
-            {'error': f'Failed to get stock info: {str(e)}'}, 
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
-
-
-@api_view(['GET'])
-@permission_classes([])  # Allow unauthenticated for testing
-def health_check(request):
-    """
-    Health check endpoint for analytics engine.
-    
-    GET /api/analytics/health/
-    """
-    
-    try:
-        # Basic system checks
-        from core.models import Sector
-        from core.services.sector_mapping import validate_sector_mappings
-        
-        sector_count = Sector.objects.count()
-        validation = validate_sector_mappings()
-        
-        # Test basic calculations
-        from analytics.services.calculations import ReturnCalculator
-        calc = ReturnCalculator()
-        
-        health_data = {
-            'status': 'healthy',
-            'timestamp': timezone.now().isoformat(),
-            'system': {
-                'sectors_configured': sector_count,
-                'sectors_valid': len(validation['validation_errors']) == 0,
-                'cache_available': cache.get('health_test') is None,  # Test cache
-            },
-            'services': {
-                'analytics_engine': True,
-                'calculations': True,
-                'sector_mapping': True,
-                'data_provider': True
-            }
+        context = {
+            'portfolios': portfolios,
+            'portfolio_summaries': portfolio_summaries,
+            'total_value': total_value,
+            'recent_analyses': recent_analyses,
+            'last_updated': timezone.now()
         }
         
-        # Test cache
-        cache.set('health_test', 'ok', 60)
-        health_data['system']['cache_available'] = cache.get('health_test') == 'ok'
-        
-        return Response(health_data)
+        return render(request, 'core/dashboard.html', context)
         
     except Exception as e:
-        logger.error(f"Health check failed: {e}")
-        return Response({
-            'status': 'unhealthy',
-            'timestamp': timezone.now().isoformat(),
-            'error': str(e)
-        }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        logger.error(f"Dashboard error for user {request.user.id}: {e}")
+        messages.error(request, "Error loading dashboard.")
+        return render(request, 'core/dashboard.html', {})
 
 
-@api_view(['GET'])
-@permission_classes([])  # Allow unauthenticated for testing  
-def list_sectors(request):
-    """
-    List all available sectors.
-    
-    GET /api/sectors/
-    """
+@login_required
+@require_http_methods(["GET", "POST"])
+def analyze_portfolio(request, portfolio_id):
+    """Analyze a portfolio."""
+    orchestrator = get_orchestrator()
     
     try:
-        from core.models import Sector
+        # Get portfolio and verify ownership
+        portfolio = get_object_or_404(
+            UserPortfolio,
+            id=portfolio_id,
+            user=request.user,
+            is_active=True
+        )
         
-        sectors = Sector.objects.all().order_by('name')
-        
-        sector_data = []
-        for sector in sectors:
-            sector_data.append({
-                'code': sector.code,
-                'name': sector.name,
-                'etf_symbol': sector.etf_symbol,
-                'volatility_threshold': float(sector.volatility_threshold),
-                'risk_category': sector.risk_category,
-                'is_defensive': sector.is_defensive,
-                'description': sector.description
+        if request.method == 'POST':
+            # Get analysis parameters
+            period = int(request.POST.get('period', 30))
+            
+            # Perform analysis
+            analysis = orchestrator.analyze_portfolio(
+                request.user,
+                portfolio_id,
+                analysis_period=period
+            )
+            
+            if 'error' in analysis:
+                messages.error(request, f"Analysis failed: {analysis['error']}")
+                return redirect('portfolio_detail', portfolio_id=portfolio_id)
+            
+            messages.success(request, "Portfolio analysis completed successfully!")
+            
+            # Return analysis results
+            return render(request, 'core/analysis_results.html', {
+                'portfolio': portfolio,
+                'analysis': analysis,
+                'period': period
             })
         
-        return Response({
-            'sectors': sector_data,
-            'total': len(sector_data)
+        # GET request - show analysis form
+        return render(request, 'core/analyze_portfolio.html', {
+            'portfolio': portfolio
+        })
+        
+    except OrchestratorError as e:
+        logger.error(f"Analysis error: {e}")
+        messages.error(request, str(e))
+        return redirect('dashboard')
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def analyze_stock(request, symbol=None):
+    """Analyze a single stock."""
+    orchestrator = get_orchestrator()
+    
+    if request.method == 'POST':
+        symbol = request.POST.get('symbol', '').upper()
+        period = int(request.POST.get('period', 30))
+        
+        if not symbol:
+            messages.error(request, "Please enter a stock symbol.")
+            return redirect('analyze_stock')
+        
+        try:
+            # Perform stock analysis
+            analysis = orchestrator.analyze_stock(
+                symbol,
+                analysis_period=period,
+                include_technical=True
+            )
+            
+            if 'error' in analysis:
+                messages.error(request, f"Analysis failed: {analysis['error']}")
+                return redirect('analyze_stock')
+            
+            return render(request, 'core/stock_analysis.html', {
+                'analysis': analysis,
+                'symbol': symbol,
+                'period': period
+            })
+            
+        except OrchestratorError as e:
+            logger.error(f"Stock analysis error: {e}")
+            messages.error(request, str(e))
+            return redirect('analyze_stock')
+    
+    # GET request - show form or analyze provided symbol
+    if symbol:
+        try:
+            analysis = orchestrator.analyze_stock(symbol)
+            return render(request, 'core/stock_analysis.html', {
+                'analysis': analysis,
+                'symbol': symbol,
+                'period': 30
+            })
+        except:
+            messages.error(request, f"Unable to analyze {symbol}")
+    
+    return render(request, 'core/analyze_stock_form.html')
+
+
+@login_required
+def stock_search(request):
+    """Search for stocks."""
+    orchestrator = get_orchestrator()
+    query = request.GET.get('q', '')
+    
+    if not query:
+        return JsonResponse({'results': []})
+    
+    try:
+        results = orchestrator.search_stocks(query, limit=10)
+        return JsonResponse({'results': results})
+    except Exception as e:
+        logger.error(f"Stock search error: {e}")
+        return JsonResponse({'error': 'Search failed'}, status=500)
+
+
+@login_required
+@require_http_methods(["POST"])
+def add_to_portfolio(request):
+    """Add a stock to a portfolio."""
+    orchestrator = get_orchestrator()
+    
+    try:
+        # Get form data
+        portfolio_id = request.POST.get('portfolio_id')
+        symbol = request.POST.get('symbol', '').upper()
+        quantity = Decimal(request.POST.get('quantity', '0'))
+        purchase_price = Decimal(request.POST.get('purchase_price', '0'))
+        purchase_date = request.POST.get('purchase_date')
+        
+        # Validate
+        if not all([portfolio_id, symbol, quantity > 0, purchase_price > 0]):
+            return JsonResponse({'error': 'Invalid input'}, status=400)
+        
+        # Parse date
+        if purchase_date:
+            purchase_date = datetime.strptime(purchase_date, '%Y-%m-%d')
+        else:
+            purchase_date = timezone.now()
+        
+        # Add to portfolio
+        portfolio_stock = orchestrator.add_stock_to_portfolio(
+            int(portfolio_id),
+            symbol,
+            quantity,
+            purchase_price,
+            purchase_date
+        )
+        
+        messages.success(request, f"Added {symbol} to portfolio successfully!")
+        
+        return JsonResponse({
+            'success': True,
+            'message': f'Added {quantity} shares of {symbol}'
+        })
+        
+    except OrchestratorError as e:
+        logger.error(f"Add to portfolio error: {e}")
+        return JsonResponse({'error': str(e)}, status=400)
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        return JsonResponse({'error': 'Failed to add stock'}, status=500)
+
+
+@login_required
+def compare_stocks(request):
+    """Compare multiple stocks."""
+    orchestrator = get_orchestrator()
+    symbols = request.GET.get('symbols', '').split(',')
+    
+    if len(symbols) < 2:
+        messages.error(request, "Please select at least 2 stocks to compare.")
+        return redirect('stock_search')
+    
+    try:
+        # Clean symbols
+        symbols = [s.strip().upper() for s in symbols if s.strip()]
+        
+        # Perform comparison
+        comparison = orchestrator.compare_stocks(symbols)
+        
+        return render(request, 'core/stock_comparison.html', {
+            'comparison': comparison,
+            'symbols': symbols
+        })
+        
+    except OrchestratorError as e:
+        logger.error(f"Comparison error: {e}")
+        messages.error(request, str(e))
+        return redirect('dashboard')
+
+
+@login_required
+def screen_stocks(request):
+    """Stock screening tool."""
+    orchestrator = get_orchestrator()
+    
+    if request.method == 'POST':
+        # Build criteria from form
+        criteria = {}
+        
+        # Price criteria
+        if request.POST.get('price_min'):
+            criteria['price_min'] = float(request.POST['price_min'])
+        if request.POST.get('price_max'):
+            criteria['price_max'] = float(request.POST['price_max'])
+        
+        # Volatility criteria
+        if request.POST.get('volatility_max'):
+            criteria['volatility_max'] = float(request.POST['volatility_max'])
+        
+        # RSI criteria
+        if request.POST.get('rsi_min'):
+            criteria['rsi_min'] = float(request.POST['rsi_min'])
+        if request.POST.get('rsi_max'):
+            criteria['rsi_max'] = float(request.POST['rsi_max'])
+        
+        # Trend criteria
+        if request.POST.get('trend'):
+            criteria['trend'] = request.POST['trend']
+        
+        try:
+            # Run screening
+            results = orchestrator.screen_stocks(criteria)
+            
+            return render(request, 'core/screening_results.html', {
+                'results': results,
+                'criteria': criteria
+            })
+            
+        except OrchestratorError as e:
+            logger.error(f"Screening error: {e}")
+            messages.error(request, str(e))
+    
+    return render(request, 'core/stock_screener.html')
+
+
+@cache_page(60 * 5)  # Cache for 5 minutes
+def market_overview(request):
+    """Public market overview page."""
+    orchestrator = get_orchestrator()
+    
+    try:
+        market_data = orchestrator.get_market_overview()
+        sector_data = orchestrator.get_sector_performance()
+        
+        return render(request, 'core/market_overview.html', {
+            'market_data': market_data,
+            'sector_data': sector_data
+        })
+    except:
+        return render(request, 'core/market_overview.html', {
+            'error': 'Unable to load market data'
+        })
+
+
+def health_check(request):
+    """System health check endpoint."""
+    orchestrator = get_orchestrator()
+    
+    try:
+        health = orchestrator.health_check()
+        status_code = 200 if health['status'] == 'healthy' else 503
+        return JsonResponse(health, status=status_code)
+    except Exception as e:
+        logger.error(f"Health check error: {e}")
+        return JsonResponse({
+            'status': 'error',
+            'error': str(e)
+        }, status=503)
+
+
+# API-style endpoints using JsonResponse
+
+@login_required
+def api_portfolio_value(request, portfolio_id):
+    """Get current portfolio value."""
+    orchestrator = get_orchestrator()
+    
+    try:
+        # Verify ownership
+        portfolio = get_object_or_404(
+            UserPortfolio,
+            id=portfolio_id,
+            user=request.user
+        )
+        
+        value = orchestrator.calculations_service.calculate_portfolio_value(portfolio_id)
+        
+        return JsonResponse({
+            'portfolio_id': portfolio_id,
+            'value': float(value),
+            'currency': 'USD',
+            'timestamp': timezone.now().isoformat()
         })
         
     except Exception as e:
-        logger.error(f"Error listing sectors: {e}")
-        return Response(
-            {'error': 'Failed to list sectors'}, 
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        logger.error(f"Portfolio value error: {e}")
+        return JsonResponse({'error': str(e)}, status=400)
+
+
+@login_required
+def api_portfolio_allocation(request, portfolio_id):
+    """Get portfolio allocation."""
+    orchestrator = get_orchestrator()
+    
+    try:
+        # Verify ownership
+        portfolio = get_object_or_404(
+            UserPortfolio,
+            id=portfolio_id,
+            user=request.user
         )
+        
+        allocation = orchestrator.calculations_service.calculate_stock_allocation(portfolio_id)
+        
+        return JsonResponse({
+            'portfolio_id': portfolio_id,
+            'allocation': allocation,
+            'timestamp': timezone.now().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"Portfolio allocation error: {e}")
+        return JsonResponse({'error': str(e)}, status=400)
+
+
+@login_required
+def api_batch_update_prices(request):
+    """Trigger batch price update."""
+    if not request.user.is_staff:
+        return JsonResponse({'error': 'Unauthorized'}, status=403)
+    
+    orchestrator = get_orchestrator()
+    
+    try:
+        symbols = request.POST.getlist('symbols[]')
+        results = orchestrator.batch_update_prices(symbols)
+        
+        return JsonResponse({
+            'success': True,
+            'results': results,
+            'timestamp': timezone.now().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"Batch update error: {e}")
+        return JsonResponse({'error': str(e)}, status=500)
+    
+# Compatibility wrappers for old URLs
+def get_stock_info(request, symbol):
+    """Wrapper for backward compatibility."""
+    return analyze_stock(request, symbol)
+
+def get_analysis_history(request, symbol):
+    """Wrapper for backward compatibility."""
+    # Redirect to analysis or return empty response
+    return JsonResponse({'history': []})

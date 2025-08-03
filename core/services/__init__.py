@@ -5,7 +5,7 @@ This package contains the orchestration layer that coordinates
 between data, analytics, and user services.
 """
 
-from .orchestrator import CoreOrchestrator, OrchestratorError
+from .orchestrator import CoreOrchestrator, OrchestratorError, get_orchestrator
 from .cache_manager import CacheManager
 from .transaction_manager import TransactionManager
 
@@ -18,6 +18,7 @@ __all__ = [
     # New orchestration services
     'CoreOrchestrator',
     'OrchestratorError',
+    'get_orchestrator',  # Added this
     'CacheManager',
     'TransactionManager',
 ]

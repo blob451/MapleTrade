@@ -193,7 +193,7 @@ class CoreOrchestrator:
         self,
         portfolio_id: int,
         symbol: str,
-        quantity: Decimal,
+        quantity: Decimal,  # This parameter name stays the same
         purchase_price: Decimal,
         purchase_date: date = None
     ) -> PortfolioStock:
@@ -218,13 +218,13 @@ class CoreOrchestrator:
                 # Get portfolio
                 portfolio = UserPortfolio.objects.get(id=portfolio_id)
                 
-                # Create portfolio stock
+                # Create portfolio stock - use correct field names
                 portfolio_stock = PortfolioStock.objects.create(
                     portfolio=portfolio,
                     stock=stock,
-                    quantity=quantity,
+                    shares=quantity,  # Changed from quantity to shares
                     purchase_price=purchase_price,
-                    purchase_date=purchase_date or timezone.now().date(),
+                    added_date=purchase_date or timezone.now(),  # Changed from purchase_date to added_date
                     is_active=True
                 )
                 
@@ -238,8 +238,7 @@ class CoreOrchestrator:
             raise OrchestratorError("Portfolio not found")
         except Exception as e:
             logger.error(f"Error adding stock to portfolio: {e}")
-            raise OrchestratorError(f"Failed to add stock: {str(e)}")
-    
+            raise OrchestratorError(f"Failed to add stock: {str(e)}")    
     def get_portfolio_summary(self, portfolio_id: int) -> Dict[str, Any]:
         """
         Get portfolio summary with current values.
