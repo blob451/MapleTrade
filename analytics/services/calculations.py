@@ -1,301 +1,365 @@
 """
-Financial calculation services for MapleTrade analytics engine.
-
-This module provides calculation utilities for volatility, returns, and other
-financial metrics used in the three-factor model.
+Financial calculations service using data services.
 """
 
-import math
 import logging
-from typing import List, Optional
-from datetime import datetime
-import pandas as pd
+from typing import Dict, List, Optional, Tuple
+from datetime import datetime, date, timedelta
+from decimal import Decimal
 import numpy as np
 
-from data.providers.base import PriceData
+from django.db import transaction
+from django.utils import timezone
+
+from data.services import StockService, PriceService, SectorService
+from data.models import Stock, Sector
+from analytics.models import AnalysisResult
+from users.models import UserPortfolio, PortfolioStock
+from .base import BaseAnalyzer
 
 logger = logging.getLogger(__name__)
 
 
-class CalculationError(Exception):
-    """Custom exception for calculation errors."""
-    pass
-
-
-class ReturnCalculator:
+class FinancialCalculations(BaseAnalyzer):
     """
-    Calculator for various return metrics.
-    
-    Provides methods for calculating total returns, period returns,
-    and other return-based metrics used in the analytics engine.
+    Service for financial calculations and portfolio analysis.
     """
     
-    def calculate_total_return(self, price_data: List[PriceData]) -> float:
+    def __init__(
+        self,
+        stock_service: Optional[StockService] = None,
+        price_service: Optional[PriceService] = None,
+        sector_service: Optional[SectorService] = None
+    ):
+        super().__init__()
+        self.stock_service = stock_service or StockService()
+        self.price_service = price_service or PriceService()
+        self.sector_service = sector_service or SectorService()
+    
+    def analyze(self, portfolio_id: int, start_date: date, end_date: date) -> Dict[str, any]:
         """
-        Calculate total return over the price data period.
+        Perform comprehensive portfolio analysis.
         
         Args:
-            price_data: List of PriceData objects sorted by date
+            portfolio_id: ID of the portfolio to analyze
+            start_date: Analysis start date
+            end_date: Analysis end date
             
         Returns:
-            Total return as decimal (e.g., 0.15 for 15% return)
-            
-        Raises:
-            CalculationError: If insufficient data or calculation fails
+            Dictionary with analysis results
         """
-        if not price_data or len(price_data) < 2:
-            raise CalculationError("Insufficient price data for return calculation")
-            
         try:
-            # Sort by date to ensure proper order
-            sorted_data = sorted(price_data, key=lambda x: x.date)
-            
-            start_price = float(sorted_data[0].close_price)
-            end_price = float(sorted_data[-1].close_price)
-            
-            if start_price <= 0:
-                raise CalculationError("Invalid start price for return calculation")
-                
-            total_return = (end_price - start_price) / start_price
-            
-            logger.debug(f"Calculated return: {total_return:.4f} "
-                        f"(${start_price:.2f} → ${end_price:.2f})")
-            
-            return total_return
-            
-        except (ValueError, IndexError, AttributeError) as e:
-            raise CalculationError(f"Return calculation failed: {e}")
-    
-    def calculate_period_returns(self, price_data: List[PriceData]) -> List[float]:
-        """
-        Calculate period-over-period returns (daily returns).
+            portfolio = UserPortfolio.objects.get(id=portfolio_id)
+        except UserPortfolio.DoesNotExist:
+            logger.error(f"Portfolio {portfolio_id} not found")
+            return {'error': 'Portfolio not found'}
         
-        Args:
-            price_data: List of PriceData objects sorted by date
-            
-        Returns:
-            List of daily returns as decimals
-        """
-        if len(price_data) < 2:
-            return []
-            
+        # Get portfolio holdings
+        holdings = PortfolioStock.objects.filter(
+            portfolio=portfolio,
+            is_active=True
+        ).select_related('stock')
+        
+        if not holdings:
+            return {'error': 'No active holdings in portfolio'}
+        
+        # Analyze each holding
+        holding_analyses = []
+        total_value = Decimal('0')
+        total_cost = Decimal('0')
+        
+        for holding in holdings:
+            analysis = self._analyze_holding(holding, start_date, end_date)
+            if analysis:
+                holding_analyses.append(analysis)
+                total_value += analysis['current_value']
+                total_cost += analysis['total_cost']
+        
+        # Calculate portfolio-level metrics
+        portfolio_analysis = {
+            'portfolio_id': portfolio_id,
+            'portfolio_name': portfolio.name,
+            'analysis_date': timezone.now().isoformat(),
+            'start_date': start_date.isoformat(),
+            'end_date': end_date.isoformat(),
+            'holdings': holding_analyses,
+            'summary': self._calculate_portfolio_summary(
+                holding_analyses,
+                total_value,
+                total_cost
+            ),
+            'risk_metrics': self._calculate_portfolio_risk(holding_analyses),
+            'sector_allocation': self._calculate_sector_allocation(holding_analyses),
+            'recommendations': self._generate_recommendations(holding_analyses)
+        }
+        
+        # Save analysis result
+        self._save_analysis_result(portfolio, portfolio_analysis)
+        
+        return portfolio_analysis
+    
+    def _analyze_holding(
+        self,
+        holding: PortfolioStock,
+        start_date: date,
+        end_date: date
+    ) -> Optional[Dict[str, any]]:
+        """Analyze individual holding."""
         try:
-            sorted_data = sorted(price_data, key=lambda x: x.date)
-            returns = []
+            stock = holding.stock
             
-            for i in range(1, len(sorted_data)):
-                prev_price = float(sorted_data[i-1].close_price)
-                curr_price = float(sorted_data[i].close_price)
-                
-                if prev_price > 0:
-                    daily_return = (curr_price - prev_price) / prev_price
-                    returns.append(daily_return)
-                    
-            return returns
+            # Get current price
+            latest_price_data = self.price_service.get_latest_price(stock)
+            if not latest_price_data:
+                logger.warning(f"No price data for {stock.symbol}")
+                return None
             
-        except (ValueError, AttributeError) as e:
-            raise CalculationError(f"Period returns calculation failed: {e}")
-
-
-class VolatilityCalculator:
-    """
-    Calculator for volatility metrics.
-    
-    Provides methods for calculating annualized volatility, rolling volatility,
-    and other risk metrics used in the analytics engine.
-    """
-    
-    def calculate_annualized_volatility(self, price_data: List[PriceData], 
-                                      trading_days_per_year: int = 252) -> float:
-        """
-        Calculate annualized volatility from historical price data.
-        
-        This method replicates the volatility calculation from the prototype:
-        1. Calculate daily returns
-        2. Calculate standard deviation of returns  
-        3. Annualize using sqrt(trading_days)
-        
-        Args:
-            price_data: List of PriceData objects
-            trading_days_per_year: Number of trading days per year (default: 252)
+            current_price = latest_price_data.close_price
             
-        Returns:
-            Annualized volatility as decimal (e.g., 0.25 for 25% volatility)
+            # Calculate basic metrics
+            current_value = current_price * holding.quantity
+            total_cost = holding.purchase_price * holding.quantity
+            gain_loss = current_value - total_cost
+            gain_loss_pct = (gain_loss / total_cost * 100) if total_cost > 0 else Decimal('0')
             
-        Raises:
-            CalculationError: If insufficient data or calculation fails
-        """
-        if not price_data or len(price_data) < 10:
-            raise CalculationError("Insufficient data for volatility calculation (minimum 10 points)")
+            # Get price history for period
+            price_history = self.price_service.get_price_history(
+                stock,
+                start_date,
+                end_date
+            )
             
-        try:
-            return_calc = ReturnCalculator()
-            daily_returns = return_calc.calculate_period_returns(price_data)
+            # Calculate volatility
+            volatility = None
+            if len(price_history) >= 20:
+                returns = self.price_service.calculate_returns(price_history)
+                if returns:
+                    daily_returns = [r[1] for r in returns]
+                    volatility = float(np.std(daily_returns) * np.sqrt(252) * 100)
             
-            if len(daily_returns) < 5:
-                raise CalculationError("Insufficient returns for volatility calculation")
-                
-            # Calculate standard deviation of returns
-            returns_array = np.array(daily_returns)
-            daily_volatility = np.std(returns_array, ddof=1)  # Sample standard deviation
-            
-            # Annualize volatility
-            annualized_vol = daily_volatility * math.sqrt(trading_days_per_year)
-            
-            logger.debug(f"Calculated annualized volatility: {annualized_vol:.4f} "
-                        f"from {len(daily_returns)} daily returns")
-            
-            return float(annualized_vol)
-            
-        except (ValueError, TypeError) as e:
-            raise CalculationError(f"Volatility calculation failed: {e}")
-    
-    def calculate_rolling_volatility(self, price_data: List[PriceData], 
-                                   window_days: int = 30) -> List[float]:
-        """
-        Calculate rolling volatility over specified window.
-        
-        Args:
-            price_data: List of PriceData objects sorted by date
-            window_days: Rolling window size in days
-            
-        Returns:
-            List of rolling volatility values
-        """
-        if len(price_data) < window_days + 5:
-            return []
-            
-        try:
-            return_calc = ReturnCalculator()
-            daily_returns = return_calc.calculate_period_returns(price_data)
-            
-            rolling_vols = []
-            
-            for i in range(window_days - 1, len(daily_returns)):
-                window_returns = daily_returns[i - window_days + 1:i + 1]
-                
-                if len(window_returns) == window_days:
-                    window_vol = np.std(window_returns, ddof=1) * math.sqrt(252)
-                    rolling_vols.append(float(window_vol))
-                    
-            return rolling_vols
+            return {
+                'symbol': stock.symbol,
+                'name': stock.name,
+                'sector': stock.sector.name if stock.sector else 'Unknown',
+                'quantity': float(holding.quantity),
+                'purchase_price': float(holding.purchase_price),
+                'current_price': float(current_price),
+                'current_value': float(current_value),
+                'total_cost': float(total_cost),
+                'gain_loss': float(gain_loss),
+                'gain_loss_pct': float(gain_loss_pct),
+                'weight': 0.0,  # Will be calculated at portfolio level
+                'volatility': volatility,
+                'purchase_date': holding.purchase_date.isoformat(),
+                'days_held': (timezone.now().date() - holding.purchase_date).days
+            }
             
         except Exception as e:
-            logger.warning(f"Rolling volatility calculation failed: {e}")
-            return []
-
-
-class TechnicalCalculator:
-    """
-    Calculator for basic technical indicators.
-    
-    This is a foundation for future technical analysis expansion.
-    Currently provides simple moving averages and basic indicators.
-    """
-    
-    def calculate_sma(self, price_data: List[PriceData], period: int) -> List[float]:
-        """Calculate Simple Moving Average."""
-        if len(price_data) < period:
-            return []
-            
-        sorted_data = sorted(price_data, key=lambda x: x.date)
-        prices = [float(p.close_price) for p in sorted_data]        
-        sma_values = []
-        for i in range(period - 1, len(prices)):
-            window_avg = sum(prices[i - period + 1:i + 1]) / period
-            sma_values.append(window_avg)
-            
-        return sma_values
-    
-    def calculate_price_momentum(self, price_data: List[PriceData], 
-                               lookback_days: int = 20) -> Optional[float]:
-        """
-        Calculate price momentum over lookback period.
-        
-        Returns the percentage change over the specified period.
-        """
-        if len(price_data) < lookback_days + 1:
+            logger.error(f"Error analyzing holding {holding.stock.symbol}: {e}")
             return None
-            
+    
+    def _calculate_portfolio_summary(
+        self,
+        holdings: List[Dict],
+        total_value: Decimal,
+        total_cost: Decimal
+    ) -> Dict[str, any]:
+        """Calculate portfolio summary metrics."""
+        if not holdings or total_value == 0:
+            return {}
+        
+        # Update weights
+        for holding in holdings:
+            holding['weight'] = holding['current_value'] / float(total_value) * 100
+        
+        # Calculate overall metrics
+        total_gain_loss = total_value - total_cost
+        total_return_pct = (total_gain_loss / total_cost * 100) if total_cost > 0 else Decimal('0')
+        
+        return {
+            'total_value': float(total_value),
+            'total_cost': float(total_cost),
+            'total_gain_loss': float(total_gain_loss),
+            'total_return_pct': float(total_return_pct),
+            'number_of_holdings': len(holdings),
+            'best_performer': max(holdings, key=lambda x: x['gain_loss_pct']),
+            'worst_performer': min(holdings, key=lambda x: x['gain_loss_pct']),
+            'largest_position': max(holdings, key=lambda x: x['weight'])
+        }
+    
+    def _calculate_portfolio_risk(self, holdings: List[Dict]) -> Dict[str, float]:
+        """Calculate portfolio risk metrics."""
+        if not holdings:
+            return {}
+        
+        # Get volatilities
+        volatilities = [h['volatility'] for h in holdings if h.get('volatility')]
+        weights = [h['weight'] / 100 for h in holdings if h.get('volatility')]
+        
+        if not volatilities:
+            return {'portfolio_volatility': None}
+        
+        # Simple weighted average volatility (ignoring correlations)
+        portfolio_volatility = sum(
+            w * v for w, v in zip(weights, volatilities)
+        )
+        
+        # Concentration risk (Herfindahl index)
+        concentration = sum(w ** 2 for w in weights) * 100
+        
+        return {
+            'portfolio_volatility': portfolio_volatility,
+            'concentration_index': concentration,
+            'max_position_weight': max(h['weight'] for h in holdings),
+            'risk_level': self._categorize_risk(portfolio_volatility)
+        }
+    
+    def _calculate_sector_allocation(self, holdings: List[Dict]) -> List[Dict]:
+        """Calculate sector allocation."""
+        sector_weights = {}
+        
+        for holding in holdings:
+            sector = holding.get('sector', 'Unknown')
+            if sector not in sector_weights:
+                sector_weights[sector] = 0
+            sector_weights[sector] += holding['weight']
+        
+        return [
+            {'sector': sector, 'weight': weight}
+            for sector, weight in sorted(
+                sector_weights.items(),
+                key=lambda x: x[1],
+                reverse=True
+            )
+        ]
+    
+    def _generate_recommendations(self, holdings: List[Dict]) -> List[str]:
+        """Generate portfolio recommendations."""
+        recommendations = []
+        
+        # Check concentration
+        max_weight = max(h['weight'] for h in holdings)
+        if max_weight > 25:
+            recommendations.append(
+                f"High concentration risk: largest position is {max_weight:.1f}% of portfolio"
+            )
+        
+        # Check diversification
+        if len(holdings) < 5:
+            recommendations.append(
+                "Low diversification: consider adding more holdings"
+            )
+        
+        # Check volatility
+        volatilities = [h['volatility'] for h in holdings if h.get('volatility')]
+        if volatilities:
+            avg_volatility = sum(volatilities) / len(volatilities)
+            if avg_volatility > 40:
+                recommendations.append(
+                    f"High portfolio volatility ({avg_volatility:.1f}%): consider adding defensive assets"
+                )
+        
+        # Check performance
+        poor_performers = [
+            h for h in holdings 
+            if h['gain_loss_pct'] < -20
+        ]
+        if poor_performers:
+            recommendations.append(
+                f"{len(poor_performers)} holdings down >20%: review and consider rebalancing"
+            )
+        
+        return recommendations
+    
+    def _categorize_risk(self, volatility: float) -> str:
+        """Categorize risk level based on volatility."""
+        if volatility is None:
+            return 'unknown'
+        elif volatility < 15:
+            return 'low'
+        elif volatility < 25:
+            return 'moderate'
+        elif volatility < 35:
+            return 'high'
+        else:
+            return 'very_high'
+    
+    def _save_analysis_result(
+        self,
+        portfolio: UserPortfolio,
+        analysis: Dict
+    ) -> None:
+        """Save analysis result to database."""
         try:
-            sorted_data = sorted(price_data, key=lambda x: x.date)
-            
-            current_price = float(sorted_data[-1].close)
-            past_price = float(sorted_data[-lookback_days - 1].close)
-            
-            if past_price > 0:
-                momentum = (current_price - past_price) / past_price
-                return float(momentum)
+            with transaction.atomic():
+                result = AnalysisResult.objects.create(
+                    portfolio=portfolio,
+                    analysis_type='comprehensive',
+                    parameters={
+                        'start_date': analysis['start_date'],
+                        'end_date': analysis['end_date']
+                    },
+                    results=analysis,
+                    metrics={
+                        'total_value': analysis['summary']['total_value'],
+                        'total_return_pct': analysis['summary']['total_return_pct'],
+                        'volatility': analysis['risk_metrics'].get('portfolio_volatility'),
+                        'num_holdings': analysis['summary']['number_of_holdings']
+                    }
+                )
                 
-        except (ValueError, IndexError):
-            pass
-            
-        return None
-
-
-class PerformanceMetrics:
-    """
-    Calculator for performance and risk metrics.
-    
-    Provides utilities for calculating Sharpe ratios, drawdowns,
-    and other performance metrics for future use.
-    """
-    
-    def calculate_sharpe_ratio(self, returns: List[float], 
-                             risk_free_rate: float = 0.02) -> Optional[float]:
-        """
-        Calculate Sharpe ratio from returns.
-        
-        Args:
-            returns: List of period returns
-            risk_free_rate: Annual risk-free rate (default: 2%)
-            
-        Returns:
-            Sharpe ratio or None if calculation fails
-        """
-        if not returns or len(returns) < 10:
-            return None
-            
-        try:
-            returns_array = np.array(returns)
-            
-            # Annualize returns (assuming daily returns)
-            annual_return = np.mean(returns_array) * 252
-            annual_volatility = np.std(returns_array, ddof=1) * math.sqrt(252)
-            
-            if annual_volatility == 0:
-                return None
+                logger.info(f"Saved analysis result {result.id} for portfolio {portfolio.id}")
                 
-            sharpe = (annual_return - risk_free_rate) / annual_volatility
-            return float(sharpe)
-            
-        except Exception:
-            return None
+        except Exception as e:
+            logger.error(f"Failed to save analysis result: {e}")
     
-    def calculate_max_drawdown(self, price_data: List[PriceData]) -> Optional[float]:
-        """
-        Calculate maximum drawdown from peak to trough.
-        
-        Returns:
-            Maximum drawdown as negative decimal (e.g., -0.15 for 15% drawdown)
-        """
-        if len(price_data) < 2:
-            return None
-            
+    def calculate_portfolio_value(self, portfolio_id: int) -> Decimal:
+        """Calculate current portfolio value."""
         try:
-            sorted_data = sorted(price_data, key=lambda x: x.date)
-            prices = [float(p.close_price) for p in sorted_data]            
-            peak = prices[0]
-            max_drawdown = 0.0
+            holdings = PortfolioStock.objects.filter(
+                portfolio_id=portfolio_id,
+                is_active=True
+            ).select_related('stock')
             
-            for price in prices[1:]:
-                if price > peak:
-                    peak = price
-                else:
-                    drawdown = (price - peak) / peak
-                    max_drawdown = min(max_drawdown, drawdown)
-                    
-            return float(max_drawdown)
+            total_value = Decimal('0')
             
-        except Exception:
-            return None
+            for holding in holdings:
+                latest_price = self.price_service.get_latest_price(holding.stock)
+                if latest_price:
+                    total_value += latest_price.close_price * holding.quantity
+            
+            return total_value
+            
+        except Exception as e:
+            logger.error(f"Error calculating portfolio value: {e}")
+            return Decimal('0')
+    
+    def calculate_stock_allocation(self, portfolio_id: int) -> List[Dict]:
+        """Calculate stock allocation in portfolio."""
+        try:
+            holdings = PortfolioStock.objects.filter(
+                portfolio_id=portfolio_id,
+                is_active=True
+            ).select_related('stock')
+            
+            allocations = []
+            total_value = self.calculate_portfolio_value(portfolio_id)
+            
+            if total_value > 0:
+                for holding in holdings:
+                    latest_price = self.price_service.get_latest_price(holding.stock)
+                    if latest_price:
+                        value = latest_price.close_price * holding.quantity
+                        allocations.append({
+                            'symbol': holding.stock.symbol,
+                            'name': holding.stock.name,
+                            'value': float(value),
+                            'weight': float(value / total_value * 100),
+                            'quantity': float(holding.quantity)
+                        })
+            
+            return sorted(allocations, key=lambda x: x['weight'], reverse=True)
+            
+        except Exception as e:
+            logger.error(f"Error calculating stock allocation: {e}")
+            return []

@@ -9,9 +9,8 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 import logging
 
-from django.db.models import Q
-from core.models import Stock, PriceData as PriceDataModel
-from data.providers import YahooFinanceProvider, DataProviderError
+from data.services import StockService, PriceService
+from data.models import Stock, PriceData
 from .base import BaseAnalyzer
 
 logger = logging.getLogger(__name__)
@@ -22,9 +21,11 @@ class TechnicalIndicators(BaseAnalyzer):
     Service for calculating technical indicators and metrics.
     """
     
-    def __init__(self, data_provider: Optional[YahooFinanceProvider] = None):
+    def __init__(self, stock_service: Optional[StockService] = None, 
+                 price_service: Optional[PriceService] = None):
         super().__init__()
-        self.data_provider = data_provider or YahooFinanceProvider()
+        self.stock_service = stock_service or StockService()
+        self.price_service = price_service or PriceService()
     
     def analyze(self, symbol: str, start_date: datetime, end_date: datetime) -> Dict[str, any]:
         """
@@ -32,21 +33,19 @@ class TechnicalIndicators(BaseAnalyzer):
         
         Returns dict with indicators like SMA, EMA, RSI, MACD, etc.
         """
-        # First try to get data from database
-        price_data = self._get_price_data_from_db(symbol, start_date, end_date)
+        # Get or create stock
+        try:
+            stock = self.stock_service.get_or_create_stock(symbol, update_if_stale=False)
+        except Exception as e:
+            logger.error(f"Failed to get stock {symbol}: {e}")
+            return {'error': f'Failed to get stock: {str(e)}'}
         
-        # If not enough data in DB and we have a provider, try API
-        if (not price_data or len(price_data) < 20) and self.data_provider:
-            logger.info(f"Insufficient DB data for {symbol} ({len(price_data) if price_data else 0} records), trying API...")
-            try:
-                api_price_data = self.data_provider.get_price_history(symbol, start_date, end_date)
-                if api_price_data:
-                    # Save to database for future use
-                    self._save_price_data_to_db(symbol, api_price_data)
-                    price_data = api_price_data
-            except (DataProviderError, Exception) as e:
-                logger.warning(f"Failed to get price data from API for {symbol}: {e}")
-                # Continue with whatever data we have
+        # Get price history using the price service
+        price_data = self.price_service.get_price_history(
+            stock, 
+            start_date.date() if hasattr(start_date, 'date') else start_date,
+            end_date.date() if hasattr(end_date, 'date') else end_date
+        )
         
         if not price_data:
             logger.error(f"No price data available for {symbol}")
@@ -60,12 +59,12 @@ class TechnicalIndicators(BaseAnalyzer):
         # Calculate indicators
         results = {
             'symbol': symbol,
-            'start_date': start_date.isoformat(),
-            'end_date': end_date.isoformat(),
+            'start_date': start_date.isoformat() if hasattr(start_date, 'isoformat') else str(start_date),
+            'end_date': end_date.isoformat() if hasattr(end_date, 'isoformat') else str(end_date),
             'data_points': len(df)
         }
         
-        # Add all indicators
+        # Add all indicators based on available data
         if len(df) >= 2:  # Need at least 2 points for returns
             results['returns'] = self.calculate_returns(df)
             results['volatility'] = self.calculate_volatility(df)
@@ -88,80 +87,16 @@ class TechnicalIndicators(BaseAnalyzer):
         if len(df) >= 200:
             results['sma_200'] = self.calculate_sma(df, 200)
         
+        # Add trend analysis
+        results['trend'] = self.analyze_trend(df)
+        
+        # Add support/resistance levels
+        results['support_resistance'] = self.calculate_support_resistance(df)
+        
         return results
     
-    def _get_price_data_from_db(self, symbol: str, start_date: datetime, end_date: datetime):
-        """Get price data from database."""
-        try:
-            stock = Stock.objects.filter(symbol__iexact=symbol).first()
-            if not stock:
-                logger.warning(f"Stock {symbol} not found in database")
-                return []
-            
-            price_records = PriceDataModel.objects.filter(
-                stock=stock,
-                date__gte=start_date.date(),
-                date__lte=end_date.date()
-            ).order_by('date')
-            
-            logger.info(f"Found {price_records.count()} price records for {symbol} in database")
-            
-            # Convert to PriceData objects
-            from data.providers.base import PriceData
-            
-            price_data = []
-            for record in price_records:
-                price_data.append(PriceData(
-                    symbol=symbol,
-                    date=datetime.combine(record.date, datetime.min.time()),
-                    open_price=record.open_price,
-                    high_price=record.high_price,
-                    low_price=record.low_price,
-                    close_price=record.close_price,
-                    adjusted_close=record.adjusted_close or record.close_price,
-                    volume=record.volume
-                ))
-            
-            return price_data
-            
-        except Exception as e:
-            logger.error(f"Error getting price data from DB for {symbol}: {e}")
-            return []
-    
-    def _save_price_data_to_db(self, symbol: str, price_data: List):
-        """Save price data to database."""
-        try:
-            stock = Stock.objects.filter(symbol__iexact=symbol).first()
-            if not stock:
-                logger.warning(f"Cannot save price data - stock {symbol} not found")
-                return
-            
-            saved_count = 0
-            for data in price_data:
-                try:
-                    PriceDataModel.objects.update_or_create(
-                        stock=stock,
-                        date=data.date.date() if hasattr(data.date, 'date') else data.date,
-                        defaults={
-                            'open_price': data.open_price,
-                            'high_price': data.high_price,
-                            'low_price': data.low_price,
-                            'close_price': data.close_price,
-                            'adjusted_close': data.adjusted_close,
-                            'volume': data.volume
-                        }
-                    )
-                    saved_count += 1
-                except Exception as e:
-                    logger.warning(f"Failed to save price record for {symbol} on {data.date}: {e}")
-            
-            logger.info(f"Saved {saved_count} price records for {symbol}")
-            
-        except Exception as e:
-            logger.error(f"Error saving price data to DB for {symbol}: {e}")
-    
-    def _create_dataframe(self, price_data) -> pd.DataFrame:
-        """Convert price data to pandas DataFrame."""
+    def _create_dataframe(self, price_data: List[PriceData]) -> pd.DataFrame:
+        """Convert PriceData objects to pandas DataFrame."""
         if not price_data:
             return pd.DataFrame()
         
@@ -180,25 +115,27 @@ class TechnicalIndicators(BaseAnalyzer):
             df.sort_index(inplace=True)
         return df
     
-    def calculate_sma(self, df: pd.DataFrame, period: int) -> float:
+    def calculate_sma(self, df: pd.DataFrame, period: int) -> Optional[float]:
         """Calculate Simple Moving Average."""
         if len(df) < period:
             return None
         try:
             return float(df['close'].rolling(window=period).mean().iloc[-1])
-        except:
+        except Exception as e:
+            logger.error(f"Error calculating SMA: {e}")
             return None
     
-    def calculate_ema(self, df: pd.DataFrame, period: int) -> float:
+    def calculate_ema(self, df: pd.DataFrame, period: int) -> Optional[float]:
         """Calculate Exponential Moving Average."""
         if len(df) < period:
             return None
         try:
             return float(df['close'].ewm(span=period, adjust=False).mean().iloc[-1])
-        except:
+        except Exception as e:
+            logger.error(f"Error calculating EMA: {e}")
             return None
     
-    def calculate_rsi(self, df: pd.DataFrame, period: int = 14) -> float:
+    def calculate_rsi(self, df: pd.DataFrame, period: int = 14) -> Optional[float]:
         """Calculate Relative Strength Index."""
         if len(df) < period + 1:
             return None
@@ -227,7 +164,7 @@ class TechnicalIndicators(BaseAnalyzer):
             logger.error(f"Error calculating RSI: {e}")
             return None
     
-    def calculate_macd(self, df: pd.DataFrame) -> Dict[str, float]:
+    def calculate_macd(self, df: pd.DataFrame) -> Optional[Dict[str, float]]:
         """Calculate MACD (Moving Average Convergence Divergence)."""
         if len(df) < 26:
             return None
@@ -255,7 +192,7 @@ class TechnicalIndicators(BaseAnalyzer):
             logger.error(f"Error calculating MACD: {e}")
             return None
     
-    def calculate_bollinger_bands(self, df: pd.DataFrame, period: int = 20) -> Dict[str, float]:
+    def calculate_bollinger_bands(self, df: pd.DataFrame, period: int = 20) -> Optional[Dict[str, float]]:
         """Calculate Bollinger Bands."""
         if len(df) < period:
             return None
@@ -269,17 +206,25 @@ class TechnicalIndicators(BaseAnalyzer):
             upper_band = sma + (2 * std)
             lower_band = sma - (2 * std)
             
+            current_price = float(df['close'].iloc[-1])
+            middle = float(sma.iloc[-1])
+            
+            # Calculate position within bands (0 = lower band, 1 = upper band)
+            band_width = float((upper_band - lower_band).iloc[-1])
+            position = (current_price - float(lower_band.iloc[-1])) / band_width if band_width > 0 else 0.5
+            
             return {
                 'upper': float(upper_band.iloc[-1]),
-                'middle': float(sma.iloc[-1]),
+                'middle': middle,
                 'lower': float(lower_band.iloc[-1]),
-                'width': float((upper_band - lower_band).iloc[-1])
+                'width': band_width,
+                'position': position
             }
         except Exception as e:
             logger.error(f"Error calculating Bollinger Bands: {e}")
             return None
     
-    def calculate_volatility(self, df: pd.DataFrame, period: int = None) -> float:
+    def calculate_volatility(self, df: pd.DataFrame, period: int = None) -> Optional[float]:
         """
         Calculate annualized volatility.
         
@@ -317,7 +262,7 @@ class TechnicalIndicators(BaseAnalyzer):
             logger.error(f"Error calculating volatility: {e}")
             return None
     
-    def calculate_returns(self, df: pd.DataFrame) -> Dict[str, float]:
+    def calculate_returns(self, df: pd.DataFrame) -> Optional[Dict[str, float]]:
         """Calculate various return metrics."""
         if len(df) < 2:
             return None
@@ -361,33 +306,121 @@ class TechnicalIndicators(BaseAnalyzer):
             logger.error(f"Error calculating returns: {e}")
             return None
     
+    def analyze_trend(self, df: pd.DataFrame) -> Optional[Dict[str, any]]:
+        """Analyze price trend using moving averages."""
+        if len(df) < 50:
+            return None
+        
+        try:
+            current_price = float(df['close'].iloc[-1])
+            sma_20 = self.calculate_sma(df, 20)
+            sma_50 = self.calculate_sma(df, 50)
+            
+            trend_info = {
+                'current_price': current_price,
+                'short_term': 'bullish' if current_price > sma_20 else 'bearish',
+                'medium_term': 'bullish' if current_price > sma_50 else 'bearish'
+            }
+            
+            # Golden/Death cross detection
+            if len(df) >= 200:
+                sma_200 = self.calculate_sma(df, 200)
+                trend_info['long_term'] = 'bullish' if current_price > sma_200 else 'bearish'
+                
+                # Check for crossovers in last 5 days
+                recent_50 = df['close'].rolling(window=50).mean().tail(5)
+                recent_200 = df['close'].rolling(window=200).mean().tail(5)
+                
+                if len(recent_50) >= 2 and len(recent_200) >= 2:
+                    if recent_50.iloc[-2] < recent_200.iloc[-2] and recent_50.iloc[-1] > recent_200.iloc[-1]:
+                        trend_info['signal'] = 'golden_cross'
+                    elif recent_50.iloc[-2] > recent_200.iloc[-2] and recent_50.iloc[-1] < recent_200.iloc[-1]:
+                        trend_info['signal'] = 'death_cross'
+            
+            return trend_info
+            
+        except Exception as e:
+            logger.error(f"Error analyzing trend: {e}")
+            return None
+    
+    def calculate_support_resistance(self, df: pd.DataFrame, lookback: int = 20) -> Optional[Dict[str, float]]:
+        """Calculate support and resistance levels."""
+        if len(df) < lookback:
+            return None
+        
+        try:
+            recent_data = df.tail(lookback)
+            current_price = float(df['close'].iloc[-1])
+            
+            # Find local highs and lows
+            highs = recent_data['high'].values
+            lows = recent_data['low'].values
+            
+            # Simple approach: use recent high/low
+            resistance = float(recent_data['high'].max())
+            support = float(recent_data['low'].min())
+            
+            # Find intermediate levels
+            pivot = (resistance + support + current_price) / 3
+            
+            return {
+                'support': support,
+                'resistance': resistance,
+                'pivot': float(pivot),
+                'support_strength': self._calculate_level_strength(df, support),
+                'resistance_strength': self._calculate_level_strength(df, resistance)
+            }
+            
+        except Exception as e:
+            logger.error(f"Error calculating support/resistance: {e}")
+            return None
+    
+    def _calculate_level_strength(self, df: pd.DataFrame, level: float, tolerance: float = 0.02) -> int:
+        """Calculate how many times price has bounced off a level."""
+        if len(df) < 10:
+            return 0
+        
+        try:
+            # Count touches within tolerance
+            touches = 0
+            for i in range(len(df)):
+                low = float(df['low'].iloc[i])
+                high = float(df['high'].iloc[i])
+                
+                # Check if price touched the level
+                if (abs(low - level) / level <= tolerance or 
+                    abs(high - level) / level <= tolerance):
+                    touches += 1
+            
+            return touches
+            
+        except Exception:
+            return 0
+    
     def get_price_at_date(self, symbol: str, date: datetime) -> Optional[Decimal]:
         """Get closing price for a specific date."""
         try:
-            # First try database
-            stock = Stock.objects.filter(symbol__iexact=symbol).first()
-            if stock:
-                price_record = PriceDataModel.objects.filter(
-                    stock=stock,
-                    date__lte=date.date()
-                ).order_by('-date').first()
-                
-                if price_record:
-                    return price_record.close_price
+            stock = self.stock_service.get_or_create_stock(symbol, update_if_stale=False)
+            latest_price = self.price_service.get_latest_price(stock)
             
-            # If not in DB and we have provider, try API
-            if self.data_provider:
-                try:
-                    start = date - timedelta(days=5)
-                    price_data = self.data_provider.get_price_history(symbol, start, date)
-                    
-                    if price_data:
-                        # Return the most recent price
-                        return price_data[-1].close_price
-                except:
-                    pass
+            if latest_price and latest_price.date <= date.date():
+                return latest_price.close_price
+            
+            # Get historical price
+            price_data = self.price_service.get_price_history(
+                stock,
+                (date - timedelta(days=5)).date(),
+                date.date()
+            )
+            
+            if price_data:
+                # Return the most recent price up to the requested date
+                for price in reversed(price_data):
+                    if price.date <= date.date():
+                        return price.close_price
             
             return None
+            
         except Exception as e:
-            self.logger.error(f"Error getting price for {symbol} at {date}: {e}")
+            logger.error(f"Error getting price for {symbol} at {date}: {e}")
             return None
