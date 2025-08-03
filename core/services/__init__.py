@@ -1,48 +1,26 @@
 """
-MapleTrade Core Services Package.
+Core Services Package.
 
-This package contains the core business logic services for the MapleTrade
-analytics platform, including the main analytics engine and supporting
-calculation services.
+This package contains the orchestration layer that coordinates
+between data, analytics, and user services.
 """
 
-from .analytics_engine import AnalyticsEngine, AnalysisResult, AnalysisSignals, AnalyticsEngineError
-from ...analytics.services.calculations import (
-    ReturnCalculator, 
-    VolatilityCalculator, 
-    TechnicalCalculator, 
-    PerformanceMetrics,
-    CalculationError
-)
-from .sector_mapping import (
-    SectorMapper, 
-    SectorAnalyzer,
-    initialize_default_sectors,
-    validate_sector_mappings
-)
+from .orchestrator import CoreOrchestrator, OrchestratorError
+from .cache_manager import CacheManager
+from .transaction_manager import TransactionManager
+
+# Legacy imports commented out to avoid import errors
+# Uncomment only if you fix the imports in those files
+# from .analytics_engine import AnalyticsEngine as LegacyAnalyticsEngine
+# from .sector_mapping import SectorMapper as LegacySectorMapper
 
 __all__ = [
-    # Main analytics engine
-    'AnalyticsEngine',
-    'AnalysisResult', 
-    'AnalysisSignals',
-    'AnalyticsEngineError',
-    
-    # Calculation services
-    'ReturnCalculator',
-    'VolatilityCalculator', 
-    'TechnicalCalculator',
-    'PerformanceMetrics',
-    'CalculationError',
-    
-    # Sector mapping services
-    'SectorMapper',
-    'SectorAnalyzer',
-    'initialize_default_sectors',
-    'validate_sector_mappings',
+    # New orchestration services
+    'CoreOrchestrator',
+    'OrchestratorError',
+    'CacheManager',
+    'TransactionManager',
 ]
 
-
 # Version info
-__version__ = '1.0.0'
-__author__ = 'MapleTrade Development Team'
+__version__ = '2.0.0'
