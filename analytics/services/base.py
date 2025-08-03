@@ -1,76 +1,73 @@
 """
-Base classes for analytics services.
+Base analyzer class for all analytics services.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional
-from datetime import datetime
-from decimal import Decimal
+from typing import Dict, Any
 import logging
-from django.utils import timezone  # Add this import
+
+logger = logging.getLogger(__name__)
 
 
 class BaseAnalyzer(ABC):
     """
-    Abstract base class for all analyzers.
+    Abstract base class for all analyzer services.
+    
+    Provides common functionality and enforces consistent interface.
     """
     
     def __init__(self):
-        self.logger = logging.getLogger(self.__class__.__name__)
+        """Initialize base analyzer."""
+        self.logger = logger
     
     @abstractmethod
-    def analyze(self, symbol: str, start_date: datetime, end_date: datetime) -> Dict[str, Any]:
+    def analyze(self, symbol: str, **kwargs) -> Dict[str, Any]:
         """
         Perform analysis on a stock.
         
         Args:
             symbol: Stock ticker symbol
-            start_date: Start date for analysis
-            end_date: End date for analysis
+            **kwargs: Additional parameters specific to the analyzer
             
         Returns:
-            Dictionary containing analysis results
+            Dict containing analysis results
         """
         pass
-
-
-class AnalysisResult:
-    """
-    Container for analysis results.
-    """
     
-    def __init__(self, symbol: str, recommendation: str, confidence: float = 0.0):
-        self.symbol = symbol
-        self.recommendation = recommendation  # BUY, HOLD, SELL
-        self.confidence = confidence
-        self.timestamp = timezone.now()  # Changed from datetime.now()
-        self.signals = {}
-        self.metrics = {}
-        self.errors = []
+    def validate_symbol(self, symbol: str) -> str:
+        """
+        Validate and normalize stock symbol.
+        
+        Args:
+            symbol: Stock ticker symbol
+            
+        Returns:
+            Normalized symbol (uppercase)
+            
+        Raises:
+            ValueError: If symbol is invalid
+        """
+        if not symbol or not isinstance(symbol, str):
+            raise ValueError("Symbol must be a non-empty string")
+        
+        symbol = symbol.strip().upper()
+        
+        if not symbol.isalnum():
+            raise ValueError("Symbol must contain only letters and numbers")
+        
+        if len(symbol) > 5:
+            raise ValueError("Symbol must be 5 characters or less")
+        
+        return symbol
     
-    def add_signal(self, name: str, value: bool, weight: float = 1.0):
-        """Add a signal to the analysis."""
-        self.signals[name] = {
-            'value': value,
-            'weight': weight
-        }
+    def log_analysis_start(self, symbol: str, analyzer_name: str):
+        """Log the start of analysis."""
+        self.logger.info(f"Starting {analyzer_name} analysis for {symbol}")
     
-    def add_metric(self, name: str, value: Any):
-        """Add a metric to the analysis."""
-        self.metrics[name] = value
+    def log_analysis_complete(self, symbol: str, analyzer_name: str):
+        """Log the completion of analysis."""
+        self.logger.info(f"Completed {analyzer_name} analysis for {symbol}")
     
-    def add_error(self, error: str):
-        """Add an error message."""
-        self.errors.append(error)
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for serialization."""
-        return {
-            'symbol': self.symbol,
-            'recommendation': self.recommendation,
-            'confidence': self.confidence,
-            'timestamp': self.timestamp.isoformat(),
-            'signals': self.signals,
-            'metrics': self.metrics,
-            'errors': self.errors
-        }
+    def log_analysis_error(self, symbol: str, analyzer_name: str, error: Exception):
+        """Log analysis error."""
+        self.logger.error(f"{analyzer_name} analysis failed for {symbol}: {str(error)}")
